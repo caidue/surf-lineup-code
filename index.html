@@ -368,6 +368,7 @@ const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 function makeWave(G, tPeak, o, id) {
   const w = { id, tPeak, set: !!o.set, size: (o.size || 1) * G.size };
   w.t0 = tPeak - (0 - G.V0) / G.speed;
+  if (o.noMain) w.noMain = true;
   if (o.origin) w.origin = o.origin;
   else if (o.set && G.outside) w.origin = G.outside;
   if (w.origin) w.tOrigin = tAt(G, w, w.origin.u, w.origin.v);
@@ -376,7 +377,7 @@ function makeWave(G, tPeak, o, id) {
 function tBreakMain(G, w, u) {
   if (inChannel(G, u)) return Infinity;
   let tb = Infinity;
-  if (u >= -G.behind && u <= G.peelEnd) tb = w.tPeak + Math.abs(u) / PEEL;
+  if (!w.noMain && u >= -G.behind && u <= G.peelEnd) tb = w.tPeak + Math.abs(u) / PEEL;
   if (w.origin) {
     const o = w.origin, lo = G.aframe ? -G.peelEnd - 2 : Math.min(-G.behind, o.u) - 4;
     if (u >= lo && u <= G.peelEnd + 4) tb = Math.min(tb, w.tOrigin + Math.abs(u - o.u) / PEEL);
@@ -663,8 +664,8 @@ SCEN.push({
 });
 
 SCEN.push({
-  id: 'join', group: 'In the lineup', title: 'Join the lineup and wait your turn',
-  summary: 'How the informal queue works: where to sit, when you move up, and when it is your wave.',
+  id: 'join', group: 'In the lineup', title: 'Join the lineup: the textbook queue',
+  summary: 'The ideal version of the informal queue: where to sit, when you move up, and when it is your wave. Real lineups are messier; see the next scenario.',
   build(G, S) {
     S.rule = 'Join at the edge and take the back of the queue. Whoever has waited longest gets the next wave.';
     const names = G.crowd <= 3 ? ['A', 'B'] : G.crowd <= 7 ? ['A', 'B', 'C'] : ['A', 'B', 'C', 'D', 'E'];
@@ -707,6 +708,90 @@ SCEN.push({
     S.step(tYou - 2.4, 'do', 'Your turn: look, commit, go', 'Check that nobody deeper is paddling, then paddle hard and commit. Pulling back at the last second wastes the wave for everyone.');
     S.mark({ type: 'ring', id: 'you', t0: tYou - 2.4, t1: tYou + 0.4, tone: 'prio', label: 'Your wave' });
     S.step(tYou + 5, 'info', 'Back to the end of the line', 'Paddle back out wide of the peak and rejoin at the back. That is the whole system.');
+    S.step(tYou + 9, 'info', 'This is the textbook version', 'In real life people drift, sets break in different spots and skill levels vary a lot. "A real lineup: mixed levels" shows what that looks like.');
+  }
+});
+
+SCEN.push({
+  id: 'real', group: 'In the lineup', title: 'A real lineup: mixed levels',
+  summary: 'No neat queue: an expert who reads every set, regulars in rotation, a learner in the wrong spot, and waves that don\'t all break in the same place.',
+  build(G, S) {
+    S.rule = 'Turns go to whoever has waited and is in position. Watch first, read the sets, and sit where your level belongs.';
+    /* waves: a normal one, a set that breaks further out and deeper, a wide one that swings past the pack, a normal one */
+    const w1 = S.wave(8);
+    const w2 = S.wave(18, { set: true, size: 1.25, origin: { u: -2, v: -9.5 } });
+    const w3 = S.wave(27, { origin: { u: 8, v: -1 }, noMain: true });
+    const w4 = S.wave(37);
+
+    const local = S.actor('local', { name: 'Local', tone: 'n0' }).at(0, -1.5, -6);
+    const reg = S.actor('reg', { name: 'Regular', tone: 'n1' }).at(0, 2.5, -4.2);
+    const kook = S.actor('kook', { name: 'Learner', tone: 'n2', board: 'foam' }).at(0, 13, -1.5);
+    const reg2 = S.actor('reg2', { name: 'Regular 2', tone: 'n3' }).at(0, 5.5, -5.8);
+    const you = S.actor('you', { name: 'You', tone: 'you' }).at(0, 24, -1, 'paddle').goBy(3.5, 13, -6.5);
+    S.crowd(Math.max(0, G.crowd - 4), {
+      avoid: [[-1.5, -6], [2.5, -4.2], [13, -1.5], [5.5, -5.8], [13, -6.5], [12.5, -11.5], [5.5, -11], [-2.5, -10.8], [1, -5], [8, -5.5], [8.5, -1]]
+    });
+
+    /* w1: the regular, who has waited, takes it. The local lets a small one go. The learner paddles late and misses. */
+    reg.ride(w1, { u0: 2.5 });
+    reg.path(routeBack(G, reg.last.u, reg.last.v), 'paddle', 3.8);
+    reg.go(8, -5.5);
+    kook.wait(7).goBy(8.4, 13, 1.2, 'paddle').goBy(8.8, 13, 1.4, 'sit').say(8.9, 'Too late…');
+    kook.wait(10.5).goBy(15.5, 9, 7, 'sit');
+
+    /* w2: the local spots the set early and paddles out and deeper to where it will break */
+    local.say(10.6, 'Set!', 2).wait(11.2).go(-2.5, -10.8);
+    local.ride(w2, { base: 'origin', u0: -2.5, uEnd: Math.min(G.peelEnd - 1, 20) });
+    local.go(17, -11, 'paddle', 4.4);
+    local.go(-1.5, -6.5, 'paddle', 4);
+    const tLocal = local.last.t;
+    you.wait(12.6).go(12.5, -11.5, 'paddle', 3.6).wait(20).go(12, -6);
+    reg2.wait(12.4).go(5.5, -11, 'paddle', 3.6).wait(20.5).go(1, -5);
+    const tWash = tAt(G, w2, 9, 7);
+    kook.wait(tWash).goBy(tWash + 2.4, 11, 13, 'belly').wait(tWash + 3.4).go(16, 20);
+
+    /* w3: a wide one swings past the pack. You are the one in position. */
+    you.ride(w3, { base: 'origin', u0: 8.5 });
+    const tYou = you.rideEnd - (G.peelEnd - 9.5) / PEEL;
+    you.path(routeBack(G, you.last.u, you.last.v), 'paddle', 3.6);
+    you.go(13, -6.5);
+
+    /* w4: the regular who waited longest goes. The local is deeper but shares. */
+    const r4 = reg2;
+    r4.ride(w4, { u0: 1 });
+    r4.path(routeBack(G, r4.last.u, r4.last.v), 'paddle', 3.8);
+    local.say(35, 'Yours!', 2);
+    kook.whiteIn(w4);
+    const tKook = tAt(G, w4, 16, 20);
+
+    S.duration = Math.ceil(Math.max(tKook + 7, 46));
+
+    S.step(0, 'info', 'A real lineup is messy', 'There is no neat line. People of every level sit in different spots, drift with the current and move around as the waves change.');
+    S.step(1.5, 'info', 'Spot who is who', `The Local sits deep and keeps adjusting. The Regulars work the rotation. The Learner, on a foam board, sits wide and too far inside, unsure where the waves break.`);
+    S.step(3.5, 'do', 'Arrive at the edge and watch', "You don't know this spot yet. Sit at the edge and watch a few waves before you go for anything: where they break, who is on form, who is waiting.");
+    S.step(6.5, 'info', 'The Regular has waited and is in position', 'The Local lets this smaller one go, waiting for a set. The Regular has waited and is in the right spot, so it is theirs.');
+    S.mark({ type: 'ring', id: 'reg', t0: 6.5, t1: 9.5, tone: 'prio', label: 'In position' });
+    S.step(7.4, 'dont', 'The Learner paddles late, from the wrong spot', 'Sitting wide on the shoulder, they start paddling when the wave is already on them, and it rolls underneath. Too far out of position to ever catch it.');
+    S.mark({ type: 'ring', id: 'kook', t0: 7.4, t1: 10.2, tone: 'dont', label: 'Late, too wide' });
+    S.step(10.6, 'info', 'The Local reads the horizon', 'A bigger set is coming, and it will break further out and deeper than the peak. The Local sees it first and paddles to where it will break.');
+    S.mark({ type: 'path', t0: 10.6, t1: 15, tone: 'info', pts: [[-1.5, -6], [-2.5, -10.8]], label: 'Moves to the set peak' });
+    S.step(12.6, 'do', 'When you see a set, scratch out', 'Paddle seaward right away so you go over the waves before they break, not under the whitewater.');
+    S.mark({ type: 'ring', id: 'you', t0: 12.6, t1: 16, tone: 'do', label: 'Scratch out' });
+    S.step(16.2, 'info', 'Position beats waiting', 'The set breaks exactly where the Local is sitting, and nobody else is in position. This, more than pushing, is why good surfers get more waves.');
+    S.mark({ type: 'ring', id: 'local', t0: 16.2, t1: 19.5, tone: 'prio', label: 'Right spot' });
+    S.step(tWash, 'dont', 'Caught inside', "The Learner drifted into the impact zone and is washed in. Anyone who sat still and didn't watch the horizon gets caught too.");
+    S.mark({ type: 'zone', zone: 'impact', t0: tWash - 0.6, t1: tWash + 3, tone: 'dont', label: 'Impact zone' });
+    S.step(22.5, 'info', 'Beginners belong on the inside', 'The Learner moves to the inside, where the whitewater is mellow and nobody rides through. That is the right place to learn to catch waves.');
+    S.step(24.6, 'do', 'A wide one: whoever is in position', 'This wave swings wide of the peak. Nobody deeper can catch it, and you are sitting right there. Look, commit, go.');
+    S.mark({ type: 'ring', id: 'you', t0: 24.6, t1: tYou, tone: 'prio', label: 'Your wave' });
+    S.step(tYou + 1, 'info', 'Wide ones are fair game', 'Taking a wave the pack cannot reach does not jump the queue. Paddle back around the edge and keep waiting your turn for the peak.');
+    S.step(Math.min(tLocal - 1, 33), 'info', 'The Local is already back', 'Experienced surfers kick out early, paddle faster and go straight back to the best spot. Being in position all the time is how they end up with more waves.');
+    S.step(34.6, 'do', 'Good locals still share', `The Local is deepest, but Regular 2 has waited longest. A quick "yours!" and the wave goes to them.`);
+    S.mark({ type: 'ring', id: r4.id, t0: 34.6, t1: 38, tone: 'prio', label: 'Waited longest' });
+    S.mark({ type: 'ring', id: 'local', t0: 34.6, t1: 37.5, tone: 'do', label: 'Lets it go' });
+    S.step(tKook - 0.6, 'do', 'The Learner gets their ride', 'Straight in on the whitewater on the inside, out of the way of the rider. Everybody gets waves at their own level.');
+    S.mark({ type: 'ring', id: 'kook', t0: tKook - 0.6, t1: tKook + 3, tone: 'do', label: 'Learning inside' });
+    S.step(tKook + 4, 'info', 'The takeaway', 'The rotation is a guideline, not a strict queue. Watch first, read the sets, be in position, and sit where your level belongs.');
   }
 });
 
@@ -1309,12 +1394,13 @@ function boardPath(len, wid) {
 }
 function drawBoard(len, wid, col) {
   boardPath(len, wid); ctx.fillStyle = col; ctx.fill();
+  if (wid / len > 0.36) { ctx.save(); boardPath(len * 0.86, wid * 0.62); ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fill(); ctx.restore(); }
   ctx.strokeStyle = 'rgba(0,20,30,0.45)'; ctx.lineWidth = 0.09; ctx.stroke();
   ctx.strokeStyle = 'rgba(0,0,0,0.12)'; ctx.lineWidth = 0.05; ctx.beginPath(); ctx.moveTo(len * 0.45, 0); ctx.lineTo(-len * 0.45, 0); ctx.stroke();
 }
 const SUIT = '#17232a', SKIN = '#c8946b';
 function drawSurfer(a, x, y, ang, s, t) {
-  const long = a.board === 'long', len = (long ? 3.4 : 2.5) * FIG, wid = (long ? 0.95 : 0.78) * FIG, col = BOARD[a.tone] || BOARD.crowd;
+  const long = a.board === 'long', foam = a.board === 'foam', len = (long ? 3.4 : foam ? 3 : 2.5) * FIG, wid = (long ? 0.95 : foam ? 1.15 : 0.78) * FIG, col = BOARD[a.tone] || BOARD.crowd;
   const k = FIG, seed = hash(a.id) * 6.28;
   ctx.save(); ctx.translate(x, y);
   if (a.tone === 'ghost') ctx.globalAlpha = 0.6;
