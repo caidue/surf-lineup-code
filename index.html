@@ -1,0 +1,1758 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Animated top-down surf break showing how to behave in a surf lineup: paddling out, priority, the queue, dropping in, getting caught inside and coming back in.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d6a80'/%3E%3Cpath d='M4 20c4 0 5-6 10-6s5 6 9 6 4-3 5-3' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+:root { color-scheme: light; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; -webkit-text-size-adjust: 100%; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+</style>
+<title>Surf Lineup Code</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: a lifeguard's briefing board. Conditions strip on top; scenario rail | live water | narration; the code underneath. */
+:root {
+  --bg: #e7eef0;
+  --panel: #f7fafa;
+  --ink: #0e2830;
+  --muted: #4d6870;
+  --line: #c3d3d7;
+  --accent: #0d6a80;
+  --accent-ink: #ffffff;
+  --you: #f2603f;
+  --do: #11845e;
+  --dont: #cf2338;
+  --prio: #b98600;
+  --info: #2e64a8;
+  --chip: #dde8ea;
+  --display: "Big Shoulders Display", "Barlow Condensed", "Arial Narrow", sans-serif;
+  --body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a161a; --panel: #112329; --ink: #e0edf0; --muted: #8fa9b0; --line: #23404a;
+    --accent: #58c3d6; --accent-ink: #062027; --you: #ff7a5c; --do: #38d695; --dont: #ff5d6e;
+    --prio: #ffd04a; --info: #84b4ff; --chip: #173039; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0a161a; --panel: #112329; --ink: #e0edf0; --muted: #8fa9b0; --line: #23404a;
+  --accent: #58c3d6; --accent-ink: #062027; --you: #ff7a5c; --do: #38d695; --dont: #ff5d6e;
+  --prio: #ffd04a; --info: #84b4ff; --chip: #173039; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1440px; margin: 0 auto; padding-block: 28px 56px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 22px; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+.eyebrow, .lab { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+header.top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 420px); gap: 12px 40px; align-items: end; }
+header.top h1 { font-family: var(--display); font-weight: 900; font-size: clamp(44px, 7vw, 92px); line-height: .86; text-transform: uppercase; letter-spacing: .005em; }
+header.top h1 span { color: var(--accent); }
+header.top p { margin: 0; color: var(--muted); max-width: 60ch; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Conditions */
+.conditions { display: flex; flex-wrap: wrap; gap: 14px 22px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); align-items: flex-start; }
+.conditions .ttl { flex: 0 0 100%; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.conditions .ttl b { font-family: var(--display); font-size: 22px; text-transform: uppercase; letter-spacing: .02em; }
+.conditions .ttl span { color: var(--muted); font-size: 13px; }
+fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: 6px; }
+legend { padding: 0; margin-bottom: 6px; }
+.seg { display: flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--bg); }
+.seg label { position: relative; cursor: pointer; }
+.seg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.seg span { display: block; padding: 6px 11px; font-size: 13px; white-space: nowrap; border-right: 1px solid var(--line); }
+.seg label:last-child span { border-right: 0; }
+.seg input:checked + span { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -3px; }
+.seg input:disabled + span { opacity: .38; cursor: not-allowed; text-decoration: line-through; }
+.seg input:disabled { cursor: not-allowed; }
+.locked .seg { box-shadow: 0 0 0 2px var(--prio); }
+.locknote { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+
+/* App grid */
+.app { display: grid; grid-template-columns: 250px minmax(0, 1fr) 330px; gap: 20px; align-items: start; }
+.rail { display: grid; gap: 14px; position: sticky; top: max(12px, env(safe-area-inset-top, 0px)); max-height: calc(100vh - 24px); overflow: auto; padding-right: 4px; }
+.rail .grp { display: grid; gap: 4px; }
+.rail .grp > .lab { margin: 2px 0 2px 2px; }
+.rail button { text-align: left; border: 1px solid transparent; background: transparent; padding: 7px 10px; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; line-height: 1.3; }
+.rail button:hover { background: var(--chip); }
+.rail button[aria-current="true"] { background: var(--ink); color: var(--bg); }
+.rail button small { font-family: var(--mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; opacity: .7; white-space: nowrap; }
+.rail select { display: none; width: 100%; padding: 9px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); }
+
+.stage { display: grid; gap: 12px; min-width: 0; }
+.stage-head { display: flex; justify-content: space-between; gap: 6px 16px; align-items: end; flex-wrap: wrap; }
+.stage-head h2 { font-family: var(--display); font-weight: 800; font-size: clamp(28px, 3.4vw, 40px); text-transform: uppercase; line-height: .95; }
+.stage-head p { margin: 4px 0 0; color: var(--muted); max-width: 62ch; }
+.needs { display: flex; gap: 6px; flex-wrap: wrap; }
+.needs span { font-family: var(--mono); font-size: 11px; padding: 3px 8px; border-radius: 99px; border: 1px solid var(--prio); color: var(--ink); }
+.water { width: 100%; max-width: calc(74vh * 1.111); justify-self: center; position: relative; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); background: #0b4a63; }
+.water canvas { display: block; width: 100%; touch-action: manipulation; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--muted); }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: -2px; margin-right: 6px; border: 2px solid transparent; }
+.transport { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; gap: 10px; align-items: center; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 7px 12px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; min-width: 92px; justify-content: center; }
+.btn svg { width: 14px; height: 14px; fill: currentColor; }
+.scrub { position: relative; height: 28px; }
+.scrub input { width: 100%; position: absolute; inset: 0; margin: 0; accent-color: var(--accent); }
+.ticks { position: absolute; left: 8px; right: 8px; top: 0; height: 6px; pointer-events: none; }
+.ticks b { position: absolute; top: 0; width: 3px; height: 6px; border-radius: 2px; transform: translateX(-1px); }
+.time { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+.speed { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.speed button { border: 0; background: var(--panel); padding: 6px 8px; font-family: var(--mono); font-size: 12px; cursor: pointer; }
+.speed button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+
+/* Narration */
+.brief { display: grid; gap: 14px; position: sticky; top: max(12px, env(safe-area-inset-top, 0px)); }
+.now { border-radius: 8px; padding: 16px 16px 18px; background: var(--panel); border: 1px solid var(--line); display: grid; gap: 8px; min-height: 190px; align-content: start; }
+.kind { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; display: inline-flex; gap: 6px; align-items: center; }
+.kind::before { content: ""; width: 9px; height: 9px; border-radius: 2px; background: currentColor; }
+.k-do { color: var(--do); } .k-dont { color: var(--dont); } .k-info { color: var(--info); }
+.now h3 { font-family: var(--display); font-weight: 800; font-size: 27px; line-height: 1; text-transform: uppercase; }
+.now p { margin: 0; }
+.now.dont { box-shadow: inset 4px 0 0 var(--dont); }
+.now.do { box-shadow: inset 4px 0 0 var(--do); }
+.now.info { box-shadow: inset 4px 0 0 var(--info); }
+.rule { border: 1px dashed var(--line); border-radius: 8px; padding: 12px 14px; display: grid; gap: 4px; }
+.rule p { margin: 0; font-weight: 700; }
+ol.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 360px; overflow: auto; }
+ol.steps button { width: 100%; text-align: left; border: 0; background: transparent; border-radius: 6px; padding: 6px 8px; cursor: pointer; display: grid; grid-template-columns: 44px 14px minmax(0, 1fr); gap: 6px; align-items: baseline; font-size: 13.5px; line-height: 1.35; color: var(--muted); }
+ol.steps button:hover { background: var(--chip); }
+ol.steps button.cur { color: var(--ink); background: var(--chip); font-weight: 700; }
+ol.steps .ts { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+ol.steps .dot { width: 8px; height: 8px; border-radius: 2px; align-self: center; }
+
+/* Code + glossary */
+.code { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px 28px; border-top: 2px solid var(--ink); padding-top: 18px; }
+.code > h2 { grid-column: 1 / -1; font-family: var(--display); font-weight: 900; font-size: clamp(30px, 4vw, 48px); text-transform: uppercase; line-height: .9; }
+.code section { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.code ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.code li { padding-left: 16px; position: relative; }
+.code li::before { content: ""; position: absolute; left: 0; top: .55em; width: 7px; height: 7px; border-radius: 1px; background: var(--accent); }
+.code li b { display: block; }
+.code li span { color: var(--muted); font-size: 14px; }
+.gloss { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px 24px; }
+.gloss h2 { grid-column: 1 / -1; font-family: var(--display); font-size: 28px; text-transform: uppercase; }
+.gloss dl { margin: 0; }
+.gloss dt { font-weight: 700; }
+.gloss dd { margin: 0; color: var(--muted); font-size: 14px; }
+footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 14px; }
+
+@media (max-width: 1180px) {
+  .app { grid-template-columns: 220px minmax(0, 1fr); }
+  .brief { grid-column: 1 / -1; position: static; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: start; }
+  .brief .rule { grid-column: 1; }
+  .brief ol.steps { grid-column: 2; grid-row: 1 / span 2; }
+  .code { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 820px) {
+  header.top { grid-template-columns: minmax(0, 1fr); }
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .rail { position: static; max-height: none; overflow: visible; }
+  .rail .grp { display: none; }
+  .rail select { display: block; }
+  .brief { grid-template-columns: minmax(0, 1fr); }
+  .brief ol.steps { grid-column: auto; grid-row: auto; }
+  .transport { grid-template-columns: auto auto minmax(0, 1fr); }
+  .transport .time { display: none; }
+  .transport .speed { grid-column: 1 / -1; justify-self: start; }
+  .code { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Lineup etiquette, animated from above</div>
+      <h1>Surf Lineup <span>Code</span></h1>
+    </div>
+    <p>Pick a situation, set up the break, and watch how a considerate surfer handles it. You are the orange board. The narration explains each move, and the dashed red lines show what not to do.</p>
+  </header>
+
+  <form class="conditions" id="conditions" aria-label="Surf conditions">
+    <div class="ttl"><b>Set up the break</b><span id="condNote">Every scenario re-plays on the break you configure here.</span></div>
+    <fieldset data-key="wave"><legend class="lab">Wave</legend><div class="seg">
+      <label><input type="radio" name="wave" id="wave-right" value="right"><span>Right-hander</span></label>
+      <label><input type="radio" name="wave" id="wave-left" value="left"><span>Left-hander</span></label>
+      <label><input type="radio" name="wave" id="wave-aframe" value="aframe"><span>A-frame peak</span></label>
+    </div></fieldset>
+    <fieldset data-key="bottom"><legend class="lab">Bottom</legend><div class="seg">
+      <label><input type="radio" name="bottom" id="bottom-beach" value="beach"><span>Beach break</span></label>
+      <label><input type="radio" name="bottom" id="bottom-reef" value="reef"><span>Reef</span></label>
+      <label><input type="radio" name="bottom" id="bottom-point" value="point"><span>Point</span></label>
+    </div></fieldset>
+    <fieldset data-key="channel"><legend class="lab">Channel</legend><div class="seg">
+      <label><input type="radio" name="channel" id="channel-none" value="none"><span>None</span></label>
+      <label><input type="radio" name="channel" id="channel-shoulder" value="shoulder"><span>Past the end of the wave</span></label>
+      <label><input type="radio" name="channel" id="channel-peak" value="peak"><span>Behind the peak</span></label>
+    </div></fieldset>
+    <fieldset data-key="outside"><legend class="lab">Outside peak</legend><div class="seg">
+      <label><input type="radio" name="outside" id="outside-off" value="off"><span>No</span></label>
+      <label><input type="radio" name="outside" id="outside-on" value="on"><span>Yes</span></label>
+    </div></fieldset>
+    <fieldset data-key="inside"><legend class="lab">Inside section</legend><div class="seg">
+      <label><input type="radio" name="inside" id="inside-off" value="off"><span>No</span></label>
+      <label><input type="radio" name="inside" id="inside-on" value="on"><span>Yes</span></label>
+    </div></fieldset>
+    <fieldset data-key="crowd"><legend class="lab">Crowd</legend><div class="seg">
+      <label><input type="radio" name="crowd" id="crowd-quiet" value="quiet"><span>Quiet</span></label>
+      <label><input type="radio" name="crowd" id="crowd-busy" value="busy"><span>Busy</span></label>
+      <label><input type="radio" name="crowd" id="crowd-packed" value="packed"><span>Packed</span></label>
+    </div></fieldset>
+    <fieldset data-key="swell"><legend class="lab">Swell</legend><div class="seg">
+      <label><input type="radio" name="swell" id="swell-small" value="small"><span>Small</span></label>
+      <label><input type="radio" name="swell" id="swell-medium" value="medium"><span>Medium</span></label>
+      <label><input type="radio" name="swell" id="swell-big" value="big"><span>Big</span></label>
+    </div></fieldset>
+    <fieldset data-key="labels"><legend class="lab">Zone labels</legend><div class="seg">
+      <label><input type="radio" name="labels" id="labels-on" value="on"><span>Show</span></label>
+      <label><input type="radio" name="labels" id="labels-off" value="off"><span>Hide</span></label>
+    </div></fieldset>
+  </form>
+
+  <main class="app">
+    <nav class="rail" aria-label="Scenarios">
+      <label class="lab" for="scenSelect" style="display:none" id="scenSelectLab">Scenario</label>
+      <select id="scenSelect" aria-label="Scenario"></select>
+      <div id="scenList" style="display:grid;gap:14px"></div>
+    </nav>
+
+    <section class="stage" aria-label="Animation">
+      <div class="stage-head">
+        <div>
+          <div class="lab" id="scenGroup">In the lineup</div>
+          <h2 id="scenTitle">Scenario</h2>
+          <p id="scenSummary"></p>
+        </div>
+        <div class="needs" id="needs"></div>
+      </div>
+      <div class="water"><canvas id="sea" role="img" aria-label="Top-down view of the surf break. The beach is at the bottom, waves roll in from the top."></canvas></div>
+      <div class="legend" aria-hidden="true">
+        <span><i style="background:var(--you)"></i>You</span>
+        <span><i style="background:#8fb0ff"></i>Named surfers</span>
+        <span><i style="background:#e9eef0;border-color:#9fb2b8"></i>Rest of the crowd</span>
+        <span><i style="border-color:var(--prio)"></i>Has priority</span>
+        <span><i style="border-color:var(--do);border-style:dashed"></i>Do this</span>
+        <span><i style="border-color:var(--dont);border-style:dashed"></i>Don't do this</span>
+        <span><i style="background:#ffffff;border-color:#9fb2b8;border-radius:2px"></i>Whitewater</span>
+      </div>
+      <div class="transport">
+        <button class="btn primary" id="play" type="button"><svg viewBox="0 0 16 16" id="playIcon"><path d="M4 2l10 6-10 6z"/></svg><span id="playLab">Play</span></button>
+        <button class="btn" id="restart" type="button" aria-label="Restart"><svg viewBox="0 0 16 16"><path d="M8 2a6 6 0 1 1-5.66 8h2.2A4 4 0 1 0 8 4v3L3.5 3.5 8 0z"/></svg>Restart</button>
+        <div class="scrub"><div class="ticks" id="ticks"></div><input type="range" id="scrub" min="0" max="30" step="0.05" value="0" aria-label="Timeline"></div>
+        <span class="time" id="time">0:00 / 0:30</span>
+        <div class="speed" role="group" aria-label="Playback speed">
+          <button type="button" data-speed="0.5" aria-pressed="false">0.5×</button>
+          <button type="button" data-speed="1" aria-pressed="true">1×</button>
+          <button type="button" data-speed="2" aria-pressed="false">2×</button>
+        </div>
+      </div>
+    </section>
+
+    <aside class="brief" aria-live="polite">
+      <div class="now info" id="now">
+        <span class="kind k-info" id="nowKind">Watch</span>
+        <h3 id="nowTitle">Loading</h3>
+        <p id="nowText"></p>
+      </div>
+      <div class="rule"><span class="lab">The rule</span><p id="rule"></p></div>
+      <ol class="steps" id="steps"></ol>
+    </aside>
+  </main>
+
+  <section class="code" aria-label="The lineup code in short">
+    <h2>The code, in short</h2>
+    <section><span class="lab">Getting out</span><ul>
+      <li><b>Watch first.</b><span>Spend ten minutes on the beach. Find the peak, the channel, the sets and the crowd.</span></li>
+      <li><b>Use the channel, or go wide.</b><span>Paddle out where the waves aren't breaking, never through the peak.</span></li>
+      <li><b>Go behind riders.</b><span>Paddle toward the whitewater, away from the shoulder the rider is heading for.</span></li>
+      <li><b>Hold on to your board.</b><span>A ditched board on a leash is a weapon for whoever is behind you.</span></li>
+    </ul></section>
+    <section><span class="lab">In the lineup</span><ul>
+      <li><b>Join at the edge.</b><span>Sit at the side of the pack and take the back of the queue.</span></li>
+      <li><b>Wait your turn.</b><span>Whoever has waited longest goes next and sits deepest.</span></li>
+      <li><b>Move between sets.</b><span>Change spots in the lull, around the back or through the channel, and start at the back again.</span></li>
+      <li><b>Know your level.</b><span>If the peak is beyond you, surf the inside or another spot.</span></li>
+    </ul></section>
+    <section><span class="lab">On a wave</span><ul>
+      <li><b>Closest to the peak has priority.</b><span>The surfer with the longest ride ahead owns the wave.</span></li>
+      <li><b>Never drop in.</b><span>Look toward the peak before you go. If someone is up, pull back.</span></li>
+      <li><b>Don't snake.</b><span>Paddling around someone to sit deeper steals their turn.</span></li>
+      <li><b>Share.</b><span>Being able to catch every wave doesn't mean you should.</span></li>
+    </ul></section>
+    <section><span class="lab">Coming in and messing up</span><ul>
+      <li><b>Missed it? Clear out.</b><span>Get off the takeoff spot, toward the whitewater, and rejoin at the back.</span></li>
+      <li><b>Go in wide.</b><span>Ride one in or paddle in away from the peak and the paddle-out lane.</span></li>
+      <li><b>Mind the rip and the rocks.</b><span>Go sideways out of the current. Exit on sand, not over rocks or shallow reef.</span></li>
+      <li><b>Apologize.</b><span>Everyone makes mistakes. A quick "sorry" goes a long way.</span></li>
+    </ul></section>
+  </section>
+
+  <section class="gloss" aria-label="Glossary">
+    <h2>Words you'll hear</h2>
+    <dl><dt>Peak</dt><dd>The spot where a wave first starts to break.</dd></dl>
+    <dl><dt>Shoulder</dt><dd>The unbroken part of the wave ahead of the rider, where the ride is heading.</dd></dl>
+    <dl><dt>Inside / deep</dt><dd>Closer to the breaking part of the wave. The deepest surfer has priority.</dd></dl>
+    <dl><dt>Lineup</dt><dd>Where surfers sit and wait, just outside where waves break.</dd></dl>
+    <dl><dt>Impact zone</dt><dd>Where the waves land. Bad place to sit, worse place to paddle.</dd></dl>
+    <dl><dt>Channel</dt><dd>Deeper water where waves don't break. Often has a current flowing out.</dd></dl>
+    <dl><dt>Set / lull</dt><dd>A group of bigger waves, and the calm gap between groups.</dd></dl>
+    <dl><dt>Drop in</dt><dd>Taking off in front of someone already riding the wave.</dd></dl>
+    <dl><dt>Snake</dt><dd>Paddling around someone to steal the inside position.</dd></dl>
+    <dl><dt>Caught inside</dt><dd>Being shoreward of breaking waves, with sets landing on you.</dd></dl>
+    <dl><dt>Duck dive / turtle roll</dt><dd>Pushing a short board under a wave, or rolling a long board over and holding on.</dd></dl>
+    <dl><dt>A-frame</dt><dd>A peak that breaks both left and right, so two surfers can share it.</dd></dl>
+  </section>
+
+  <footer>Etiquette varies by spot and country. When in doubt, watch how the regulars do it, give way, and smile.</footer>
+</div>
+<script>
+'use strict';
+/* ---------- World model ----------
+   World units: x 0..100 along the beach, y 0..90 from the horizon (top) to the beach (bottom).
+   Scenarios are written in peak-relative coordinates (u, v):
+     u > 0 = toward the shoulder (the way the wave peels), u < 0 = behind the peak
+     v < 0 = seaward, v > 0 = shoreward, v = 0 is where the wave breaks at the peak. */
+const WW = 100, WH = 90, PY = 34, SHORE_Y = 78;
+const PADDLE = 3.2, WALK = 3.5, PEEL = 7, LEAD = 1.6;
+
+function makeGeo(st) {
+  const aframe = st.wave === 'aframe';
+  const dir = st.wave === 'left' ? 1 : -1;
+  const px = aframe ? 52 : (dir === -1 ? 66 : 34);
+  const bottom = st.bottom;
+  const peelEnd = { beach: 22, reef: 30, point: 42 }[bottom];
+  const behind = aframe ? peelEnd : { beach: 8, reef: 6, point: 3 }[bottom];
+  let channel = null;
+  if (st.channel === 'shoulder') channel = { u: peelEnd + 10, w: 11 };
+  else if (st.channel === 'peak') channel = { u: aframe ? -(peelEnd + 10) : -(behind + 12), w: 11 };
+  const G = {
+    st, aframe, dir, px, py: PY, bottom, peelEnd, behind, channel,
+    speed: { small: 5, medium: 6, big: 7 }[st.swell],
+    size: { small: 1, medium: 1.5, big: 2.1 }[st.swell],
+    curveK: { beach: 3, reef: 5, point: 7 }[bottom],
+    outside: st.outside === 'on' ? { u: aframe ? 0 : -4, v: -16 } : null,
+    inside: null,
+    shoreV: SHORE_Y - PY, V0: -PY - 8,
+    crowd: { quiet: 3, busy: 7, packed: 12 }[st.crowd],
+  };
+  if (st.inside === 'on') { const iu = Math.round(peelEnd * 0.6); G.inside = { u: iu, v: Math.round(vBreak(G, iu) + 5) }; }
+  G.waveName = aframe ? 'A-frame' : dir === -1 ? 'right-hander' : 'left-hander';
+  G.hand = aframe ? 'right' : dir === -1 ? 'right' : 'left';
+  return G;
+}
+const W = (G, u, v) => ({ x: G.px + G.dir * u, y: G.py + v });
+const curve = (G, u) => G.curveK * (u / 52) * (u / 52);
+const vw = (G, w, t) => G.V0 + G.speed * (t - w.t0);
+const vLine = (G, w, u, t) => vw(G, w, t) - curve(G, u);
+const tAt = (G, w, u, v) => w.t0 + (v + curve(G, u) - G.V0) / G.speed;
+const vBreak = (G, u) => G.speed * Math.abs(u) / PEEL - curve(G, u);
+const inChannel = (G, u) => !!G.channel && Math.abs(u - G.channel.u) < G.channel.w / 2;
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+
+function makeWave(G, tPeak, o, id) {
+  const w = { id, tPeak, set: !!o.set, size: (o.size || 1) * G.size };
+  w.t0 = tPeak - (0 - G.V0) / G.speed;
+  if (o.origin) w.origin = o.origin;
+  else if (o.set && G.outside) w.origin = G.outside;
+  if (w.origin) w.tOrigin = tAt(G, w, w.origin.u, w.origin.v);
+  return w;
+}
+function tBreakMain(G, w, u) {
+  if (inChannel(G, u)) return Infinity;
+  let tb = Infinity;
+  if (u >= -G.behind && u <= G.peelEnd) tb = w.tPeak + Math.abs(u) / PEEL;
+  if (w.origin) {
+    const o = w.origin, lo = G.aframe ? -G.peelEnd - 2 : Math.min(-G.behind, o.u) - 4;
+    if (u >= lo && u <= G.peelEnd + 4) tb = Math.min(tb, w.tOrigin + Math.abs(u - o.u) / PEEL);
+  }
+  return tb;
+}
+function tBreakInside(G, w, u) {
+  const I = G.inside;
+  if (!I || inChannel(G, u) || u < I.u - 2 || u > I.u + 14) return Infinity;
+  return tAt(G, w, I.u, I.v) + Math.abs(u - I.u) / PEEL;
+}
+/* foam intensity (0..1) and age of the whitewater for wave w at along-shore position u, time t */
+function foamAt(G, w, u, t) {
+  let f = 0, t1 = Infinity;
+  const tb = tBreakMain(G, w, u);
+  if (t >= tb) {
+    const age = t - tb;
+    f = G.inside ? clamp(1 - (age - 2.2) / 1.8, 0.12, 1) : 1;
+    f = Math.min(f, age * 3 + 0.3); t1 = tb;
+  }
+  const ti = tBreakInside(G, w, u);
+  if (t >= ti) { f = Math.max(f, Math.min(1, (t - ti) * 3 + 0.3)); t1 = Math.min(t1, ti); }
+  const ts = tAt(G, w, u, G.shoreV - 4);
+  if (t >= ts) { f = Math.max(f, Math.min(1, (t - ts) * 2 + 0.3) * (inChannel(G, u) ? 0.55 : 1)); t1 = Math.min(t1, ts); }
+  return { f, age: t1 === Infinity ? 0 : t - t1 };
+}
+function foamHit(G, waves, u, v, t) {
+  for (const w of waves) {
+    const vl = vLine(G, w, u, t);
+    if (v > vl + 0.7 || v < vl - 3.4) continue;
+    if (foamAt(G, w, u, t).f > 0.45) return true;
+  }
+  return false;
+}
+
+/* ---------- Actors: keyframed surfers ---------- */
+const REST = { paddle: 'sit', ride: 'sit', belly: 'sit', catch: 'sit', walk: 'stand', wipe: 'sit' };
+class Actor {
+  constructor(G, id, o) {
+    this.G = G; this.id = id; this.name = o.name || ''; this.tone = o.tone || 'crowd';
+    this.board = o.board || 'short'; this.show = o.show || null; this.kf = []; this.says = [];
+  }
+  get last() { return this.kf[this.kf.length - 1]; }
+  at(t, u, v, s = 'sit', f) { this.kf.push({ t, u, v, s, f }); return this; }
+  wait(t, s = 'sit', f) { const l = this.last; if (t > l.t + 1e-6) this.kf.push({ t, u: l.u, v: l.v, s, f }); return this; }
+  go(u, v, s = 'paddle', spd, f) {
+    const l = this.last, sp = spd || (s === 'walk' ? WALK : PADDLE);
+    this.kf.push({ t: l.t + Math.max(0.05, Math.hypot(u - l.u, v - l.v) / sp), u, v, s, f }); return this;
+  }
+  goBy(t, u, v, s = 'paddle', f) { const l = this.last; this.kf.push({ t: Math.max(t, l.t + 0.05), u, v, s, f }); return this; }
+  path(pts, s = 'paddle', spd) { for (const p of pts) this.go(p[0], p[1], p[2] || s, spd); return this; }
+  say(t, text, dur = 2.4) { this.says.push({ t0: t, t1: t + dur, text }); return this; }
+  /* Catch and ride wave w. base: 'main' | 'origin' | 'in'. side: +1 toward the shoulder, -1 the other way (A-frame lefts). */
+  ride(w, o = {}) {
+    const G = this.G, side = o.side || 1, base = o.base || (w.origin && o.fromOrigin ? 'origin' : 'main');
+    const u0 = o.u0 != null ? o.u0 : this.last.u;
+    let t0 = o.t0;
+    if (t0 == null) {
+      let c0 = 0, tc = w.tPeak;
+      if (base === 'origin') { c0 = w.origin.u; tc = w.tOrigin; }
+      if (base === 'in') { c0 = G.inside.u; tc = tAt(G, w, G.inside.u, G.inside.v); }
+      t0 = tc + ((u0 - c0) * side) / PEEL - LEAD / PEEL;
+    }
+    const vAt = (u, t) => vLine(G, w, u, t) + LEAD * 0.8;
+    if (this.last.t < t0 - 1.8) this.wait(t0 - 1.8, this.last.s === 'paddle' ? 'sit' : this.last.s);
+    this.goBy(t0, u0, vAt(u0, t0), 'paddle');
+    const uEnd = o.uEnd != null ? o.uEnd : side * (G.peelEnd - 1);
+    const tEnd = o.tEnd != null ? o.tEnd : t0 + Math.abs(uEnd - u0) / PEEL;
+    for (let t = t0 + 0.2; t < tEnd - 0.05; t += 0.2) { const u = u0 + side * PEEL * (t - t0); this.kf.push({ t, u, v: vAt(u, t), s: 'ride' }); }
+    const ue = u0 + side * PEEL * (tEnd - t0);
+    this.kf.push({ t: tEnd, u: ue, v: vAt(ue, tEnd), s: 'ride' });
+    this.rideEnd = tEnd;
+    const after = o.after || 'kick', l = this.last;
+    if (after === 'kick') this.kf.push({ t: l.t + 1, u: l.u + side * 1.5, v: vLine(G, w, l.u, l.t + 1) - 2.5, s: 'paddle' });
+    else if (after === 'wipe') {
+      const v2 = l.v + 2.5;
+      this.kf.push({ t: l.t + 1.8, u: l.u + side * 0.6, v: v2, s: 'wipe' });
+      this.kf.push({ t: l.t + 1.85, u: l.u + side * 0.6, v: v2, s: 'sit' });
+    } else if (after === 'straight') this.whiteIn(w);
+    return this;
+  }
+  /* ride (or belly-ride) the whitewater of wave w straight to the beach, then walk up */
+  whiteIn(w) {
+    const G = this.G, l = this.last, u = l.u, riding = l.s === 'ride';
+    let t = riding ? l.t : Math.max(l.t, tAt(G, w, u, l.v));
+    if (!riding) this.wait(t, 'paddle');
+    for (let i = 0; i < 200; i++) {
+      t += 0.25;
+      const v = vLine(G, w, u, t) + 0.8;
+      if (v >= G.shoreV - 1) { this.kf.push({ t, u, v: G.shoreV - 1, s: riding ? 'ride' : 'belly' }); break; }
+      this.kf.push({ t, u, v, s: riding ? 'ride' : 'belly' });
+    }
+    return this.go(u, G.shoreV + 4.5, 'walk');
+  }
+  pos(t) {
+    const k = this.kf;
+    if (!k.length) return null;
+    if (t <= k[0].t) return { u: k[0].u, v: k[0].v, s: REST[k[0].s] || k[0].s, f: k[0].f, moving: false };
+    const L = k[k.length - 1];
+    if (t >= L.t) return { u: L.u, v: L.v, s: REST[L.s] || L.s, f: L.f, moving: false };
+    let lo = 0, hi = k.length - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (k[m].t <= t) lo = m; else hi = m; }
+    const a = k[lo], b = k[hi], r = (t - a.t) / (b.t - a.t);
+    const moving = Math.hypot(b.u - a.u, b.v - a.v) > 0.05;
+    return { u: a.u + (b.u - a.u) * r, v: a.v + (b.v - a.v) * r, s: moving ? b.s : (REST[b.s] || b.s), f: b.f, moving };
+  }
+}
+
+/* ---------- Scenario builder ---------- */
+const SLOTS = [[3, -6], [6.5, -4.5], [-1, -7.5], [9.5, -6.5], [5, -9.5], [12.5, -4.8], [-3.5, -5], [8.5, -10.5], [1, -11], [15, -7.5], [-5, -8.5], [12, -11.5], [17.5, -5], [3.5, -13.5], [-2.5, -12.5], [19, -9]];
+function makeBuilder(G) {
+  let wid = 0;
+  const S = { G, waves: [], actors: [], steps: [], marks: [], duration: 30, queue: null, rule: '' };
+  S.wave = (tPeak, o = {}) => { const w = makeWave(G, tPeak, o, wid++); S.waves.push(w); return w; };
+  S.actor = (id, o = {}) => { const a = new Actor(G, id, o); S.actors.push(a); return a; };
+  S.step = (t, kind, title, text) => S.steps.push({ t, kind, title, text });
+  S.mark = (o) => S.marks.push(o);
+  S.crowd = (n, o = {}) => {
+    const avoid = o.avoid || [], out = [], du = o.du || 0, dv = o.dv || 0;
+    let i = 0;
+    for (const s of SLOTS) {
+      if (out.length >= n) break;
+      i++;
+      let u = s[0] + du, v = s[1] + dv;
+      if (G.aframe && i % 2 === 0) u = -u;
+      if (avoid.some(p => Math.hypot(p[0] - u, p[1] - v) < 3.2)) continue;
+      const j = ((i * 37) % 10) / 20 - 0.25;
+      out.push(S.actor('crowd' + i, { tone: 'crowd', board: i % 4 === 0 ? 'long' : 'short' }).at(0, u + j, v - j, 'sit'));
+    }
+    return out;
+  };
+  S.byId = id => S.actors.find(a => a.id === id);
+  return S;
+}
+
+/* ---------- Shared routes (peak-relative waypoints) ---------- */
+const entryU = G => (G.channel ? G.channel.u : G.peelEnd + 8);
+/* from the waterline at the entry point to the edge of the pack on the shoulder side */
+function routeOut(G) {
+  const ch = G.channel;
+  if (ch && ch.u > 0) return [[ch.u, -6], [17, -7.5], [13, -6]];
+  if (ch) return [[ch.u, -14], [4, -14], [15, -10], [13, -6]];
+  const u = G.peelEnd + 8;
+  return [[u, 4], [18, -4.5], [13, -6]];
+}
+/* from a kick-out spot back out to the edge of the lineup, wide of the riders */
+function routeBack(G, u, v) {
+  const ch = G.channel;
+  if (ch && ch.u > 0) return [[ch.u - 1, Math.max(v, 4)], [ch.u - 1, -6], [17, -7.5]];
+  const x = G.peelEnd + 7;
+  return [[x, Math.max(v, 6)], [x, 3], [17, -6.5]];
+}
+function tagText(G) {
+  const ch = G.channel;
+  return {
+    chWhere: !ch ? '' : ch.u > 0 ? 'past the end of the wave' : 'behind the peak',
+    peel: G.aframe ? 'both ways' : `to the surfer's ${G.hand}`,
+  };
+}
+
+/* ---------- Scenarios, part 1 ---------- */
+const SCEN = [];
+const avoidLine = (a, t0, t1) => { const r = []; for (let t = t0; t <= t1; t += 0.35) { const p = a.pos(t); r.push([p.u, p.v]); } return r; };
+const firstTime = (a, t0, t1, fn) => { for (let t = t0; t <= t1; t += 0.05) { const p = a.pos(t); if (fn(p)) return t; } return t1; };
+
+SCEN.push({
+  id: 'read', group: 'Getting out', title: 'Read the spot from the beach',
+  summary: 'Before you get wet: find the peak, the peel, the channel, the impact zone and your exit.',
+  build(G, S) {
+    const pe = G.peelEnd, sv = G.shoreV, ch = G.channel, T = tagText(G), eu = entryU(G);
+    S.duration = 34;
+    S.rule = 'Know the break before you are in it: peak, peel direction, channel, impact zone and exit.';
+    S.actor('you', { name: 'You', tone: 'you' }).at(0, eu + 3, sv + 7, 'stand').go(eu, sv + 4.5, 'walk').wait(34, 'stand');
+    const a = S.actor('a', { name: 'A', tone: 'n0' }).at(0, 0, -3.5);
+    const b = S.actor('b', { name: 'B', tone: 'n1' }).at(0, 3.5, -6);
+    S.crowd(Math.max(0, G.crowd - 2), { avoid: [[0, -3.5], [3.5, -6]] });
+    const w = [4, 10.5, 17, 23.5, 30].map((t, i) => S.wave(t, { set: i === 2 }));
+    a.ride(w[1]); a.path(routeBack(G, a.last.u, a.last.v));
+    b.wait(14).goBy(16, 0, -3.5);
+    b.ride(w[3], { side: G.aframe ? -1 : 1 });
+    if (!G.aframe) b.path(routeBack(G, b.last.u, b.last.v));
+    S.step(0, 'info', 'Watch before you paddle out', 'Give it ten minutes on the beach. Everything you need for a safe, friendly session is visible from here.');
+    S.step(3, 'info', 'Find the peak', 'The peak is where each wave starts to break. The best waves and the most people are here. The surfers waiting just outside it are the lineup.');
+    S.mark({ type: 'zone', zone: 'peak', t0: 3, t1: 9.5, tone: 'prio', label: 'Peak' });
+    S.mark({ type: 'zone', zone: 'lineup', t0: 5, t1: 9.5, tone: 'info', label: 'Lineup' });
+    S.step(9, 'info', 'See which way it peels', `This break is a ${G.waveName}: waves peel ${T.peel}. Riders travel toward the shoulder, so that is the area to keep clear of when you paddle.`);
+    const peel = s => [[0, 1.5], [s * pe * 0.5, vBreak(G, pe * 0.5) + 1.5], [s * (pe - 1), vBreak(G, pe - 1) + 1.5]];
+    S.mark({ type: 'path', t0: 9, t1: 15.5, tone: 'prio', pts: peel(1), label: 'Riders go this way' });
+    if (G.aframe) S.mark({ type: 'path', t0: 9, t1: 15.5, tone: 'prio', pts: peel(-1), label: 'and this way' });
+    if (ch) {
+      S.step(15.5, 'info', 'Find the channel', `Deep water ${T.chWhere} where waves don't break. The current here usually flows out to sea, which makes it the easy way out.`);
+      S.mark({ type: 'zone', zone: 'channel', t0: 15.5, t1: 21.5, tone: 'do', label: 'Channel' });
+    } else {
+      S.step(15.5, 'info', 'No channel: plan a route', 'Waves break all the way across here. The weakest whitewater is usually past the end of the wave, so that is where you paddle out.');
+      S.mark({ type: 'path', t0: 15.5, t1: 21.5, tone: 'do', pts: [[eu, sv]].concat(routeOut(G)), label: 'Way out' });
+    }
+    let t = 21.5;
+    if (G.outside) {
+      S.step(t, 'info', 'There is an outside peak', 'Bigger set waves break further out. Anyone sitting on the inside gets caught when they come, so watch how often sets arrive.');
+      S.mark({ type: 'zone', zone: 'outside', t0: t, t1: t + 3.2, tone: 'info', label: 'Outside peak' }); t += 3.2;
+    }
+    if (G.inside) {
+      S.step(t, 'info', 'There is an inside section', 'Waves reform and break again closer to shore. It is less crowded and softer, a good place for beginners.');
+      S.mark({ type: 'zone', zone: 'inside', t0: t, t1: t + 3.2, tone: 'info', label: 'Inside section' }); t += 3.2;
+    }
+    if (!G.outside && !G.inside) {
+      S.step(t, 'info', 'Spot the impact zone', "This is where the waves land. You don't want to sit or paddle through here.");
+      S.mark({ type: 'zone', zone: 'impact', t0: t, t1: 27.5, tone: 'dont', label: 'Impact zone' });
+    }
+    S.step(28, 'info', 'Count heads, pick your exit', `There are ${G.crowd} surfers out. Note where people come in${G.bottom === 'point' ? ', and stay off the rocks on the point' : G.bottom === 'reef' ? ' and how shallow the reef gets on the inside' : ''}.`);
+    S.mark({ type: 'zone', zone: 'exit', t0: 28, t1: 34, tone: 'do', label: 'Way in' });
+    if (G.bottom === 'point') S.mark({ type: 'zone', zone: 'rocks', t0: 28, t1: 34, tone: 'dont', label: 'Rocks' });
+  }
+});
+
+SCEN.push({
+  id: 'paddleout', group: 'Getting out', title: 'Paddle out the right way',
+  summary: 'Where to get in, which line to paddle and how to arrive in the lineup.',
+  build(G, S) {
+    const sv = G.shoreV, ch = G.channel, T = tagText(G), eu = entryU(G);
+    S.rule = 'Paddle out through the channel or wide of the peak, never through the takeoff zone.';
+    const you = S.actor('you', { name: 'You', tone: 'you' }).at(0, eu, sv + 5, 'stand').go(eu, sv - 0.5, 'walk');
+    const tWater = you.last.t;
+    const route = routeOut(G), times = [];
+    for (const p of route) { you.go(p[0], p[1]); times.push(you.last.t); }
+    const tArr = you.last.t;
+    S.duration = Math.max(34, Math.ceil(tArr + 6));
+    you.wait(S.duration);
+    const a = S.actor('a', { name: 'A', tone: 'n0' }).at(0, 0, -3.5);
+    const b = S.actor('b', { name: 'B', tone: 'n1' }).at(0, 3.5, -5.6);
+    S.crowd(Math.max(0, G.crowd - 3), { avoid: [[0, -3.5], [3.5, -5.6], [13, -6]] });
+    const ws = [4, 11, 18, 25, 32].map(t => S.wave(t));
+    a.ride(ws[1]); a.path(routeBack(G, a.last.u, a.last.v));
+    b.wait(14).goBy(16.5, 0, -3.5); b.ride(ws[3]); b.path(routeBack(G, b.last.u, b.last.v));
+    S.step(0, 'info', 'Start from the right spot', ch
+      ? `Walk to the channel ${T.chWhere} before you get in. Starting in front of the peak means fighting every wave.`
+      : "There's no channel, so walk down the beach until you're past the end of the wave, where the whitewater is weakest.");
+    S.step(tWater, 'do', ch ? 'Paddle out through the channel' : 'Paddle out wide of the peak', ch
+      ? 'Waves barely break here, so you get out with dry hair. The outgoing current even gives you a free ride.'
+      : 'Duck dive or turtle roll the whitewater, then sprint in the lulls between sets.');
+    S.mark({ type: 'path', t0: tWater, t1: tArr, tone: 'do', pts: [[eu, sv]].concat(route) });
+    S.step(tWater + 4.5, 'dont', "Don't paddle through the peak", "The straight line is the worst line. You'll get pounded, burn your energy, and sit in the path of every rider.");
+    S.mark({ type: 'path', t0: tWater + 4.5, t1: tWater + 11, tone: 'dont', pts: [[1, sv], [1, 14], [0.5, -2]], label: 'Through the impact zone' });
+    S.step(tWater + 11, 'do', 'Stay wide of the riders', 'If someone rides toward you, go behind them toward the whitewater, never toward the shoulder they are heading for.');
+    if (ch && ch.u < 0) S.step(times[0] + 0.2, 'dont', "Don't sit down right here", "You've come out behind the peak, deeper than everyone who's been waiting. Paddle around the back of the pack to the far edge.");
+    S.step(Math.max(tWater + 15, tArr - 3.5), 'do', 'Arrive at the edge of the pack', 'Come into the lineup from the side, not through the middle of the takeoff spot.');
+    S.mark({ type: 'zone', zone: 'lineup', t0: tArr - 3.5, t1: tArr + 2, tone: 'info', label: 'Lineup' });
+    S.step(tArr + 0.5, 'info', 'Sit, breathe, watch a few waves', "Work out who is waiting and in what order before you go for anything.");
+  }
+});
+
+SCEN.push({
+  id: 'meetrider', group: 'Getting out', title: 'A rider is coming at you',
+  summary: "You're paddling out and someone is riding straight toward you. Which way do you go?",
+  build(G, S) {
+    S.rule = 'Paddle toward the whitewater, behind the rider. The shoulder belongs to the person on the wave.';
+    const a = S.actor('a', { name: 'A', tone: 'n0' }).at(0, 0, -3.5);
+    S.crowd(Math.max(0, G.crowd - 2), { avoid: [[0, -3.5]] });
+    const w1 = S.wave(6);
+    a.ride(w1); a.path(routeBack(G, a.last.u, a.last.v));
+    const tc = firstTime(a, 6, a.rideEnd, p => p.v >= 12);
+    const pc = a.pos(tc), uc = pc.u;
+    const tx = Math.min(tc + 0.45, a.rideEnd), px = a.pos(tx);
+    S.wave(22);
+    const you = S.actor('you', { name: 'You', tone: 'you' }).at(0, uc, 24, 'paddle').goBy(3, uc, 15.5).wait(3.6, 'paddle');
+    you.goBy(6, uc - 8.5, 17.5);
+    const tOut = tc + 4;
+    you.wait(tOut).path([[uc - 5, 6], [17, -6.5], [14, -6]]);
+    S.duration = Math.ceil(you.last.t + 4);
+    you.wait(S.duration);
+    const ghost = S.actor('ghost', { name: 'You?', tone: 'ghost', show: [3.6, tx + 2.6] }).at(0, uc, 24, 'paddle').goBy(3, uc, 15.5).wait(3.6, 'paddle');
+    ghost.goBy(tx, px.u, px.v + 0.6).goBy(tx + 1.8, px.u + 1, px.v + 3.5, 'wipe');
+    S.step(0, 'info', 'Paddling out, mid-set', "You're on your way out when a set arrives and A catches the first wave.");
+    S.step(2.4, 'info', 'A is up and riding toward you', 'A is on the wave, so A has right of way. Your job is to stay out of the line A needs.');
+    S.mark({ type: 'ring', id: 'a', t0: 2.4, t1: tc + 1, tone: 'prio', label: 'Riding' });
+    S.step(3.6, 'do', 'Paddle toward the whitewater', 'Go behind the rider, toward the part of the wave that has already broken. The rider is heading for the shoulder, so that is where you must not be.');
+    S.mark({ type: 'path', t0: 3.6, t1: tc + 1, tone: 'do', pts: [[uc, 15.5], [uc - 8.5, 17.5]] });
+    S.step(4.6, 'dont', "Don't sprint for the shoulder", "It feels natural to try to get over the unbroken part, but that's exactly where the rider is going. You'll collide or ruin the wave.");
+    S.mark({ type: 'x', u: px.u, v: px.v + 0.8, t0: tx - 0.2, t1: tx + 2.6, label: 'Collision' });
+    S.step(tc + 0.8, 'do', 'Take the whitewater', 'Duck dive or turtle roll, and hold on to your board. Taking a bit of foam on the head is the price of staying out of the way.');
+    S.step(tc + 3, 'info', "If you can't get out of the way", 'Stop and stay still. A predictable paddler is easy for a rider to steer around. Never throw your board away.');
+    S.step(tOut + 0.2, 'do', 'Use the lull to get out', 'Once the set has passed, paddle quickly through the impact zone and out to the edge of the lineup.');
+  }
+});
+
+SCEN.push({
+  id: 'join', group: 'In the lineup', title: 'Join the lineup and wait your turn',
+  summary: 'How the informal queue works: where to sit, when you move up, and when it is your wave.',
+  build(G, S) {
+    S.rule = 'Join at the edge and take the back of the queue. Whoever has waited longest gets the next wave.';
+    const names = G.crowd <= 3 ? ['A', 'B'] : G.crowd <= 7 ? ['A', 'B', 'C'] : ['A', 'B', 'C', 'D', 'E'];
+    const spots = [[0, -3.5], [3.2, -5.6], [6.3, -4.3], [9.2, -6.1], [12.2, -4.8], [15.2, -6.4], [18, -5]];
+    const people = names.map((n, i) => S.actor(n.toLowerCase(), { name: n, tone: 'n' + i }).at(0, spots[i][0], spots[i][1]));
+    const ys = spots[names.length];
+    const you = S.actor('you', { name: 'You', tone: 'you' }).at(0, 22, -1.5, 'paddle').goBy(3, ys[0], ys[1]);
+    let queue = people.slice();
+    const tl = [{ t: 0, order: queue.map(a => a.id) }];
+    queue.push(you); tl.push({ t: 3, order: queue.map(a => a.id) });
+    const gap = 7, first = 9;
+    let tYou = 0;
+    for (let i = 0; i <= names.length; i++) {
+      const tp = first + i * gap, w = S.wave(tp), r = queue[0];
+      r.ride(w, { u0: 0 });
+      if (r === you) tYou = tp;
+      queue = queue.slice(1).concat([r]);
+      const tc = tp + 0.8;
+      tl.push({ t: tc, order: queue.map(a => a.id) });
+      queue.forEach((a, j) => {
+        if (a === r) return;
+        const sp = spots[j], l = a.last, d = Math.hypot(l.u - sp[0], l.v - sp[1]);
+        if (d < 0.3) return;
+        if (l.t <= tc + 0.5) { a.wait(tc + 0.5); a.goBy(tc + 0.5 + Math.max(1.6, d / 2.2), sp[0], sp[1]); }
+        else a.go(sp[0], sp[1]);
+      });
+      r.path(routeBack(G, r.last.u, r.last.v), 'paddle', 3.8);
+      const sp = spots[queue.length - 1]; r.go(sp[0], sp[1]);
+    }
+    S.queue = tl;
+    S.duration = Math.ceil(tYou + 13);
+    S.step(0, 'info', 'Arrive at the edge, not the peak', 'Paddle in from the side and sit at the edge of the pack. A nod or a hello goes a long way.');
+    S.mark({ type: 'path', t0: 0, t1: 4.5, tone: 'dont', pts: [[22, -1.5], [9, -2], [1.2, -2.8]], label: 'Straight to the peak' });
+    S.step(3.2, 'info', 'Work out the order', `The numbers show the rotation. Whoever has waited longest is next and sits deepest, closest to the peak. You're number ${names.length + 1}.`);
+    S.step(first - 2.2, 'info', 'Number 1 takes the next wave', 'A has priority. Everyone else lets this one go by.');
+    S.mark({ type: 'ring', id: 'a', t0: first - 2.2, t1: first + 0.6, tone: 'prio', label: 'Next' });
+    S.step(first + 1.2, 'info', 'Riders go to the back', 'After the ride, A paddles back out wide of the peak and joins the end of the queue, behind you.');
+    S.step(first + gap - 1, 'do', 'Move up as the queue moves', 'Shift toward the peak as your turn gets closer. Never settle deeper than someone who is ahead of you.');
+    if (names.length >= 3) S.step(first + 2 * gap - 1, 'info', "It's informal", "Nobody calls out numbers. People just remember who has had a wave. In a packed lineup it's less strict, but the idea is the same: don't take more than your share.");
+    S.step(tYou - 2.4, 'do', 'Your turn: look, commit, go', 'Check that nobody deeper is paddling, then paddle hard and commit. Pulling back at the last second wastes the wave for everyone.');
+    S.mark({ type: 'ring', id: 'you', t0: tYou - 2.4, t1: tYou + 0.4, tone: 'prio', label: 'Your wave' });
+    S.step(tYou + 5, 'info', 'Back to the end of the line', 'Paddle back out wide of the peak and rejoin at the back. That is the whole system.');
+  }
+});
+
+SCEN.push({
+  id: 'priority', group: 'In the lineup', title: 'Who has priority',
+  summary: 'Two surfers paddle for the same wave. Who gets it, and what if they miss?',
+  build(G, S) {
+    S.rule = 'The surfer closest to the peak has priority. If they miss the wave, it passes to the next surfer.';
+    S.duration = 28;
+    const a = S.actor('a', { name: 'A', tone: 'n0' }).at(0, 0, -3.5);
+    const b = S.actor('b', { name: 'B', tone: 'n1' }).at(0, 6, -4.8);
+    const c = S.actor('c', { name: 'C', tone: 'n2' }).at(0, 2.5, -7.2);
+    S.crowd(Math.max(0, G.crowd - 3), { avoid: [[0, -3.5], [6, -4.8], [2.5, -7.2], [0.8, -4]] });
+    const w1 = S.wave(8), w2 = S.wave(18);
+    a.ride(w1); a.path(routeBack(G, a.last.u, a.last.v));
+    b.wait(6.2).goBy(7.3, 6, -2.4, 'paddle').goBy(7.9, 6.1, -2.8, 'sit').say(7.1, 'Go!');
+    b.wait(11).goBy(13.5, 6, -3.8);
+    c.wait(10.5).goBy(13.5, 0.8, -4);
+    c.wait(16.4).goBy(17.9, 0.8, -0.9, 'paddle').goBy(18.6, 1, 1.4, 'sit').say(18.2, 'Missed it');
+    c.wait(21).goBy(25, 2.5, -6);
+    b.ride(w2, { u0: 6, t0: 18.2 }); b.path(routeBack(G, b.last.u, b.last.v));
+    S.step(0, 'info', 'Two surfers, one wave', 'A sits closer to the peak than B. A wave is on its way.');
+    S.step(4, 'info', 'Closest to the peak has priority', `On a ${G.waveName}, the surfer nearest the breaking part of the wave, the deepest one, has the longest ride ahead and gets the wave.`);
+    S.mark({ type: 'ring', id: 'a', t0: 4, t1: 10, tone: 'prio', label: 'Priority' });
+    S.step(6.3, 'info', 'Both start paddling', "That's fine. Until it's clear who has it, paddling makes sure the wave doesn't go unridden.");
+    S.step(7.2, 'do', 'B looks toward the peak and pulls back', 'B sees that A is deeper and going, so B stops and lets it pass. A short "go!" makes it clear.');
+    S.mark({ type: 'ring', id: 'b', t0: 7.2, t1: 9.5, tone: 'do', label: 'Pulls back' });
+    S.step(9.5, 'info', 'A gets the wave alone', 'One surfer per wave is the default. Nobody had to shout or race.');
+    S.step(14.5, 'info', 'Now C is deepest', 'With A gone, C has moved to the peak and has priority on the next wave.');
+    S.mark({ type: 'ring', id: 'c', t0: 14.5, t1: 18, tone: 'prio', label: 'Priority' });
+    S.step(17.6, 'info', 'C misses it', "C doesn't paddle hard enough and the wave slips past.");
+    S.step(18.4, 'do', 'Priority passes down the line', 'Once the deeper surfer is clearly not on it, B can go. Nobody gets dropped in on.');
+    S.mark({ type: 'ring', id: 'b', t0: 18.4, t1: 21, tone: 'do', label: 'Now B can go' });
+    S.step(23, 'info', 'Missing usually counts as your turn', 'C waits for the next one like everyone else, instead of paddling straight back to the peak.');
+  }
+});
+
+SCEN.push({
+  id: 'aframe', group: 'In the lineup', title: 'Share an A-frame peak', needs: { wave: 'aframe' },
+  summary: 'A peak that breaks both ways can give two rides per wave if people talk.',
+  build(G, S) {
+    S.rule = 'On an A-frame, call your direction early. One surfer per side.';
+    S.duration = 30;
+    const pe = G.peelEnd;
+    const back = (a, s) => { const l = a.last; a.path([[s * (pe + 7), Math.max(l.v, 6)], [s * (pe + 7), 3], [s * 17, -6.5]]); };
+    const a = S.actor('a', { name: 'A', tone: 'n0' }).at(0, -1.6, -4);
+    const b = S.actor('b', { name: 'B', tone: 'n1' }).at(0, 1.6, -4.4);
+    const c = S.actor('c', { name: 'C', tone: 'n2' }).at(0, 0.8, -7.4);
+    const d = S.actor('d', { name: 'D', tone: 'n3' }).at(0, -3.2, -7.6);
+    S.crowd(Math.max(0, G.crowd - 4), { avoid: [[-1.6, -4], [1.6, -4.4], [0.8, -7.4], [-3.2, -7.6], [0.4, -4], [-1.6, -4.6]] });
+    const w1 = S.wave(8), w2 = S.wave(19);
+    a.say(5.2, 'Going left!').ride(w1, { side: -1, u0: -1.6 }); back(a, -1);
+    b.say(6.1, 'Right!').ride(w1, { side: 1, u0: 1.6 }); back(b, 1);
+    c.wait(11).goBy(13.5, 0.4, -4);
+    d.wait(11).goBy(13.5, -1.6, -4.6);
+    c.say(16.3, 'Right!').ride(w2, { side: 1, u0: 0.4 }); back(c, 1);
+    d.say(17.2, 'Left then!').ride(w2, { side: -1, u0: -1.6 }); back(d, -1);
+    S.step(0, 'info', 'A peak that breaks both ways', 'An A-frame gives two rides per wave, a left and a right. Two surfers can share it without anyone dropping in.');
+    S.step(3.5, 'info', 'A and B are both on the peak', 'Both are equally deep. Neither has a clear claim on the whole wave.');
+    S.step(5.2, 'do', 'Call your direction early', 'A calls "going left!" loud and clear, well before taking off.');
+    S.step(6.1, 'do', 'The other takes the other side', 'B answers "right!" and both go. Each has priority on their own side.');
+    S.mark({ type: 'ring', id: 'a', t0: 5.2, t1: 9, tone: 'prio', label: 'Left' });
+    S.mark({ type: 'ring', id: 'b', t0: 6.1, t1: 9, tone: 'prio', label: 'Right' });
+    S.step(10.5, 'info', 'Each rider stays on their side', "A doesn't cut back into B's half, and B doesn't cut back into A's.");
+    S.step(14, 'info', 'C and D move up', 'Next in the queue, they move to the peak.');
+    S.step(16.3, 'info', 'C calls the right', 'C is deepest for the right, so C gets it.');
+    S.step(17.2, 'do', 'D takes the left instead', 'If someone has already called your side, go the other way or wait for the next wave.');
+    S.step(23, 'dont', 'What not to do', "Don't silently go the same way as someone else, and don't take off left and then cut back across into the right.");
+  }
+});
+
+/* ---------- Scenarios, part 2 ---------- */
+SCEN.push({
+  id: 'drift', group: 'In the lineup', title: 'Get back into position after drifting',
+  summary: 'The current has pushed you onto the shoulder. How do you get back without getting in the way?',
+  build(G, S) {
+    S.rule = 'Check your position against the land, and correct it between waves by going around the pack, not through the peak.';
+    S.duration = 32;
+    const sv = G.shoreV;
+    const you = S.actor('you', { name: 'You', tone: 'you' }).at(0, 4.5, -5.5).goBy(9.5, 15, 4.5, 'sit');
+    const a = S.actor('a', { name: 'A', tone: 'n0' }).at(0, 0, -3.5);
+    const b = S.actor('b', { name: 'B', tone: 'n1' }).at(0, 2, -7.5);
+    S.crowd(Math.max(0, G.crowd - 3), { avoid: [[0, -3.5], [2, -7.5], [4.5, -5.5], [0, -4]] });
+    const w1 = S.wave(12.5), w2 = S.wave(27);
+    a.ride(w1); a.path(routeBack(G, a.last.u, a.last.v));
+    you.wait(14).path([[19.5, -2], [13, -9.5], [4.5, -5.5]], 'paddle', 3.4);
+    const tBack = you.last.t;
+    b.wait(15).goBy(18, 0, -3.5); b.ride(w2); b.path(routeBack(G, b.last.u, b.last.v));
+    S.step(0, 'info', "You're waiting in the pack", 'You have a spot in the rotation, a little down the line from the peak.');
+    S.step(1.5, 'do', 'Pick a marker on land', 'Line up two fixed points on the beach, like a lifeguard tower and a tree. When they drift apart, so are you.');
+    S.mark({ type: 'path', t0: 1.5, t1: 7.5, tone: 'info', pts: [[4.5, sv + 4], [4.5, -4]], label: 'Your marker line' });
+    S.step(4.5, 'info', 'The current moves you', 'Currents along the reef or beach slowly push surfers toward the shoulder and the inside. Most people only notice when they are in the way.');
+    S.step(9.5, 'dont', "Now you're on the shoulder", "This is where riders head. From here you either get in someone's way or are tempted to snag a wave from the wrong spot.");
+    S.mark({ type: 'zone', zone: 'shoulder', t0: 9.5, t1: 14, tone: 'dont', label: 'Shoulder' });
+    S.step(11.5, 'dont', "Don't paddle straight back through the peak", 'A set wave is coming and A is about to take off. The direct line puts you right in front of A.');
+    S.mark({ type: 'path', t0: 11.5, t1: 15, tone: 'dont', pts: [[15, 4.5], [7, 0], [1.5, -3]], label: 'Through the takeoff' });
+    S.step(14, 'do', 'Go around the outside', 'Once the wave has passed, paddle wide and seaward of the takeoff zone, behind the pack, and slot back into roughly where you were.');
+    S.mark({ type: 'path', t0: 14, t1: tBack, tone: 'do', pts: [[15, 4.5], [19.5, -2], [13, -9.5], [4.5, -5.5]] });
+    S.step(tBack - 1, 'info', "Keep your place, don't jump ahead", "Drifting usually doesn't cost you your turn, but don't use the trip back to settle deeper than the people who were ahead of you.");
+    S.step(tBack + 2.5, 'do', 'Hold position with small strokes', 'Paddle gently against the drift every so often instead of letting it build up.');
+  }
+});
+
+SCEN.push({
+  id: 'move', group: 'In the lineup', title: 'Move to another peak', needs: { inside: 'on' },
+  summary: "You've warmed up on the inside and want to try the main peak. When and how do you move?",
+  build(G, S) {
+    S.rule = 'Move between sets, go around the takeoff zone, and start at the back of the new queue.';
+    const I = G.inside, pe = G.peelEnd, ch = G.channel;
+    const you = S.actor('you', { name: 'You', tone: 'you' }).at(0, I.u + 1, I.v - 3.5);
+    S.actor('k', { name: '', tone: 'crowd', board: 'long' }).at(0, I.u + 6, I.v - 2.2);
+    const a = S.actor('a', { name: 'A', tone: 'n0' }).at(0, 0, -3.5);
+    const b = S.actor('b', { name: 'B', tone: 'n1' }).at(0, 3.2, -5.6);
+    const c = S.actor('c', { name: 'C', tone: 'n2' }).at(0, 6.3, -4.3);
+    S.crowd(Math.max(0, G.crowd - 5), { avoid: [[0, -3.5], [3.2, -5.6], [6.3, -4.3], [15.5, -6.4]] });
+    const w1 = S.wave(5), w2 = S.wave(11.5), w3 = S.wave(28);
+    a.ride(w1); a.path(routeBack(G, a.last.u, a.last.v), 'paddle', 3.6); a.go(9.2, -6.1);
+    b.wait(7).goBy(9, 0, -3.5); b.ride(w2); b.path(routeBack(G, b.last.u, b.last.v), 'paddle', 3.6); b.go(12.2, -4.8);
+    c.wait(14).goBy(17, 0, -3.5); c.ride(w3); c.path(routeBack(G, c.last.u, c.last.v));
+    a.go(3.2, -5.6);
+    const route = [[I.u + 12, I.v - 7], [pe + 4, 2], [18.5, -7.5], [15.5, -6.4]];
+    you.wait(14.5).path(route, 'paddle', 3.7);
+    const tArr = you.last.t;
+    S.duration = Math.ceil(Math.max(34, tArr + 7));
+    S.queue = [
+      { t: 0, order: ['a', 'b', 'c'] }, { t: 5.8, order: ['b', 'c', 'a'] }, { t: 12.3, order: ['c', 'a', 'b'] },
+      { t: tArr, order: ['c', 'a', 'b', 'you'] }, { t: Math.max(tArr, 28.8), order: ['a', 'b', 'you', 'c'] },
+    ];
+    S.step(0, 'info', "You're on the inside section", "Smaller, softer waves reform here. It's a good place to warm up, but now you want to try the main peak.");
+    S.mark({ type: 'zone', zone: 'inside', t0: 0, t1: 4, tone: 'info', label: 'Inside section' });
+    S.step(3, 'do', 'Wait for the set to finish', "Don't start moving while waves are still coming. You'd cross the impact zone at the worst possible time.");
+    S.step(6.5, 'info', 'Let riders through', 'A is riding from the main peak and has priority all the way through the inside.');
+    S.mark({ type: 'ring', id: 'a', t0: 6, t1: 9, tone: 'prio', label: 'Riding through' });
+    S.step(14.5, 'do', 'Move in the lull, and go wide', `Paddle around the end of the wave${ch ? ' (or through the channel)' : ''} and come up to the main pack from the shoulder side.`);
+    S.mark({ type: 'path', t0: 14.5, t1: tArr, tone: 'do', pts: [[I.u + 1, I.v - 3.5]].concat(route) });
+    S.step(16, 'dont', 'Not straight up through the peak', "It's the shortest line and the worst one. If a set arrives you are caught exactly where people take off.");
+    S.mark({ type: 'path', t0: 16, t1: 22, tone: 'dont', pts: [[I.u + 1, I.v - 3.5], [6, 8], [1, -2.5]], label: 'Through the peak' });
+    S.step(tArr - 1, 'do', 'Join at the back', 'You are new to this peak, so you go to the end of the queue. Time spent waiting on the inside does not count here.');
+    S.step(tArr + 3, 'info', 'The same goes for any move', 'Switching to another sandbar, another peak or the outside works the same way: move between sets, go around, start at the back.');
+  }
+});
+
+SCEN.push({
+  id: 'outside', group: 'In the lineup', title: 'Outside and inside peaks', needs: { outside: 'on' },
+  summary: 'Sets break on an outside peak and ride through the inside lineup. Who has priority?',
+  build(G, S) {
+    S.rule = 'A wave ridden from the outside has priority over everyone sitting on the inside.';
+    const O = G.outside;
+    const o1 = S.actor('o1', { name: 'O1', tone: 'n1' }).at(0, O.u + 1, O.v - 3);
+    const o2 = S.actor('o2', { name: 'O2', tone: 'n2' }).at(0, O.u + 4.5, O.v - 4);
+    const you = S.actor('you', { name: 'You', tone: 'you' }).at(0, 0.5, -3.5);
+    const a = S.actor('a', { name: 'A', tone: 'n0' }).at(0, 3.5, -4.8);
+    const w1 = S.wave(6), w2 = S.wave(15, { set: true }), w3 = S.wave(21, { set: true }), w4 = S.wave(29.5);
+    a.ride(w1, { u0: 3.5, t0: 6.1 }); a.path(routeBack(G, a.last.u, a.last.v));
+    o1.ride(w2, { base: 'origin', u0: O.u + 1 });
+    const back = (s) => { s.path(routeBack(G, s.last.u, s.last.v)); s.go(O.u + 6, O.v - 3); };
+    back(o1);
+    o2.ride(w3, { base: 'origin', u0: O.u + 1.5 }); back(o2);
+    const avoid = [[0.5, -3.5], [3.5, -4.8], [O.u + 1, O.v - 3], [O.u + 4.5, O.v - 4]].concat(avoidLine(o1, w2.tOrigin, o1.rideEnd), avoidLine(o2, w3.tOrigin, o2.rideEnd));
+    S.crowd(Math.max(0, G.crowd - 4), { avoid });
+    const tg = firstTime(o1, w2.tOrigin, o1.rideEnd, p => p.v >= -2), pg = o1.pos(tg);
+    S.actor('ghost', { name: 'You?', tone: 'ghost', show: [tg - 3.8, tg + 2.6] }).at(0, 0.5, -3.5).wait(tg - 3.6).goBy(tg, pg.u + 3, pg.v + 1).goBy(tg + 1.6, pg.u + 4, pg.v + 4, 'wipe');
+    you.ride(w4, { u0: 0.5 }); you.path(routeBack(G, you.last.u, you.last.v));
+    S.duration = Math.ceil(w4.tPeak + 7);
+    S.step(0, 'info', 'Two takeoff spots', "Bigger set waves break on the outside peak. Smaller waves pass under it and break on the inside peak, where you're sitting.");
+    S.mark({ type: 'zone', zone: 'outside', t0: 0, t1: 4, tone: 'info', label: 'Outside peak' });
+    S.mark({ type: 'zone', zone: 'peak', t0: 0, t1: 4, tone: 'info', label: 'Inside peak' });
+    S.step(4, 'info', 'Small waves belong to the inside', "This one doesn't break outside, so the inside crowd can ride it.");
+    S.step(w2.tOrigin - 1.5, 'info', 'A set breaks outside', 'O1 catches it on the outside peak and is riding toward the inside lineup.');
+    S.mark({ type: 'ring', id: 'o1', t0: w2.tOrigin - 0.5, t1: tg + 2, tone: 'prio', label: 'Priority' });
+    S.step(tg - 1.8, 'dont', "Don't take off in front of them", 'A wave ridden from the outside belongs to that surfer all the way to the end. Taking off on the inside in front of them is a drop-in.');
+    S.mark({ type: 'x', u: pg.u + 3.5, v: pg.v + 2, t0: tg, t1: tg + 2.6, label: 'Drop-in' });
+    S.step(tg + 0.8, 'do', 'Stay out of their line and take the foam', 'Stay put or move toward the whitewater, and duck dive. You chose to sit inside, and the foam comes with it.');
+    S.step(w3.tOrigin, 'info', 'The inside gets cleaned up', 'When the outside is breaking, people sitting inside spend a lot of time ducking. Keep your board under control.');
+    S.step(w4.tPeak - 3, 'do', 'Take what the outside lets through', 'When a wave passes the outside unridden and stands up on the inside, it is fair game.');
+  }
+});
+
+SCEN.push({
+  id: 'dropin', group: 'Breaking the rules', title: 'Dropping in',
+  summary: 'Taking off in front of someone who is already riding. The cardinal sin, and what to do if you do it.',
+  build(G, S) {
+    S.rule = 'Never take off in front of someone who is riding or has priority. Look toward the peak before you go.';
+    S.duration = 26;
+    const a = S.actor('a', { name: 'A', tone: 'n0' }).at(0, 0, -3.5);
+    const b = S.actor('b', { name: 'B', tone: 'n1' }).at(0, 9.5, -3.8);
+    const c = S.actor('c', { name: 'C', tone: 'n2' }).at(0, 3, -6.5);
+    const d = S.actor('d', { name: 'D', tone: 'n3' }).at(0, 10, -5.5);
+    S.crowd(Math.max(0, G.crowd - 4), { avoid: [[0, -3.5], [9.5, -3.8], [3, -6.5], [10, -5.5]] });
+    const w1 = S.wave(6), w2 = S.wave(17);
+    a.ride(w1, { tEnd: 7.7, after: 'wipe' });
+    const pa = a.pos(7.7);
+    a.wait(11).path(routeBack(G, a.last.u, a.last.v));
+    b.ride(w1, { u0: 9.5, t0: 6.35 }); b.say(b.rideEnd + 0.4, 'Sorry!'); b.path(routeBack(G, b.last.u, b.last.v));
+    c.wait(10).goBy(13, 0, -3.5); c.ride(w2); c.path(routeBack(G, c.last.u, c.last.v));
+    d.wait(15.4).goBy(16.3, 10, -2.8, 'paddle').goBy(16.9, 10, -3.2, 'sit').say(16.2, 'Yours!');
+    S.step(0, 'info', 'A sits deepest', 'A has priority on the next wave. B is sitting further down the line, toward the shoulder.');
+    S.mark({ type: 'ring', id: 'a', t0: 3, t1: 7.7, tone: 'prio', label: 'Priority' });
+    S.step(5.2, 'dont', 'B takes off anyway', "B doesn't look toward the peak, or looks and goes anyway. B is now on the wave in front of A, who is already riding. That's a drop-in.");
+    S.mark({ type: 'ring', id: 'b', t0: 5.6, t1: 9.5, tone: 'dont', label: 'Drop-in' });
+    S.step(7.5, 'dont', 'A has nowhere to go', 'A has to straighten out or bail. Two surfers and two boards on one wave is how people get hurt.');
+    S.mark({ type: 'x', u: pa.u + 1, v: pa.v, t0: 7.6, t1: 10.5, label: 'Wave ruined' });
+    S.step(10, 'info', 'The most serious breach', "Dropping in ruins someone's wave and puts them at risk. In many lineups it's the one thing that gets you shouted at or sent in.");
+    S.step(12.5, 'do', 'If you drop in by accident', 'Kick out right away, get off the wave, and apologize. Then let that surfer have the next one.');
+    S.step(15.2, 'do', 'Always look toward the peak first', 'Before you commit, glance toward the breaking part of the wave. If someone is up, or paddling from deeper, pull back.');
+    S.step(16.2, 'do', 'D checks, sees C, and pulls back', 'Same situation as before, handled properly.');
+    S.mark({ type: 'ring', id: 'd', t0: 16.2, t1: 19, tone: 'do', label: 'Pulls back' });
+    S.mark({ type: 'ring', id: 'c', t0: 15.2, t1: 19, tone: 'prio', label: 'Priority' });
+    S.step(21, 'info', 'The shoulder has its own waves', "Waiting down the line is fine. You get the waves the deeper surfers miss or let go.");
+  }
+});
+
+SCEN.push({
+  id: 'snake', group: 'Breaking the rules', title: 'Snaking',
+  summary: 'Paddling around someone to steal the inside position right before a wave.',
+  build(G, S) {
+    S.rule = "Don't paddle around people to sit deeper. The inside spot only counts if you waited for it.";
+    S.duration = 27;
+    const a = S.actor('a', { name: 'A', tone: 'n0' }).at(0, 2.5, -4.5);
+    const s = S.actor('s', { name: 'S', tone: 'n1' }).at(0, 8.5, -6);
+    const c = S.actor('c', { name: 'C', tone: 'n2' }).at(0, 5.5, -8);
+    S.crowd(Math.max(0, G.crowd - 3), { avoid: [[2.5, -4.5], [8.5, -6], [5.5, -8], [7, -9.5], [2, -9.5], [-1.5, -6.5], [-1.2, -4.2]] });
+    const w1 = S.wave(11), w2 = S.wave(20);
+    const snakePath = [[7, -9.8], [2, -10], [-1.8, -7], [-1.2, -4.2]];
+    s.wait(3).path(snakePath, 'paddle', 2.6);
+    s.ride(w1, { u0: -1.2 }); s.path(routeBack(G, s.last.u, s.last.v));
+    a.wait(9).goBy(10.3, 2.6, -1.6, 'paddle').goBy(10.9, 2.7, -2.3, 'sit').say(10.2, 'Seriously?');
+    a.wait(14).goBy(16, 0.4, -3.6); a.ride(w2, { u0: 0.4 }); a.path(routeBack(G, a.last.u, a.last.v));
+    S.step(0, 'info', 'A is next', 'A has waited longest and sits closest to the peak. S has just paddled back out after a wave.');
+    S.mark({ type: 'ring', id: 'a', t0: 0, t1: 3, tone: 'prio', label: 'Next' });
+    S.step(3, 'dont', 'S paddles around A', "S goes behind A and sits down deeper, right on the peak. That's snaking, also called back-paddling.");
+    S.mark({ type: 'path', t0: 3, t1: 10, tone: 'dont', pts: [[8.5, -6]].concat(snakePath), label: 'Snaking' });
+    S.step(7.5, 'info', 'Technically S now has priority', "Being deepest gives right of way, which is exactly why snaking works. It's still stealing A's turn.");
+    S.step(9.6, 'dont', 'S takes the wave', 'A has to pull back from a wave that should have been theirs.');
+    S.mark({ type: 'ring', id: 's', t0: 9.6, t1: 13, tone: 'dont', label: 'Snake' });
+    S.step(13, 'info', 'Why it matters', 'The inside rule only works if people wait their turn. Snaking turns the lineup into a race, and everyone gets hostile.');
+    S.step(16, 'do', 'Wait your turn instead', 'Let the queue come to you. If someone keeps snaking you, a calm word or a quieter peak works better than snaking back.');
+    S.step(19, 'info', 'A gets the next one', 'The lineup usually sorts it out: most people will let the snaked surfer have the next wave.');
+  }
+});
+
+SCEN.push({
+  id: 'hog', group: 'Breaking the rules', title: 'Hogging waves',
+  summary: 'A longboarder sits deeper and catches everything. Fair? Mostly not.',
+  build(G, S) {
+    S.rule = "Being able to catch every wave doesn't mean you should. Give waves back.";
+    S.duration = 31;
+    const L = S.actor('l', { name: 'L', tone: 'n0', board: 'long' }).at(0, -1.5, -8);
+    const you = S.actor('you', { name: 'You', tone: 'you' }).at(0, 3, -5);
+    const a = S.actor('a', { name: 'A', tone: 'n1' }).at(0, 6.5, -4.5);
+    S.crowd(Math.max(0, G.crowd - 3), { avoid: [[-1.5, -8], [3, -5], [6.5, -4.5], [13, -2], [2, -9.5], [1, -4]] });
+    const w1 = S.wave(6), w2 = S.wave(16), w3 = S.wave(23.5);
+    const lBack = () => L.path([[13, -2], [2, -9.5], [-1.5, -8]], 'paddle', 5);
+    L.ride(w1, { u0: -1, t0: 5.4, uEnd: 10 }); lBack();
+    L.ride(w2, { u0: -1, t0: 15.4, uEnd: 10 }); lBack();
+    L.say(21, "Go, it's yours!");
+    you.wait(14.2).goBy(15.4, 3, -2.6, 'paddle').goBy(16, 3.1, -3.2, 'sit').say(15.6, 'Again?');
+    you.wait(18.5).goBy(20.5, 1, -4);
+    you.ride(w3, { u0: 1 }); you.path(routeBack(G, you.last.u, you.last.v));
+    S.step(0, 'info', 'L sits deeper and further out', 'Longboards, SUPs and strong paddlers catch waves earlier than anyone else. That gives them a natural edge in the lineup.');
+    S.step(4.8, 'info', 'L takes the first wave', 'L catches it early, before it even breaks. Fair enough: L was deepest and up first.');
+    S.step(13.5, 'dont', 'And the next one', 'L is straight back out and takes another. Everyone else is still waiting for their first.');
+    S.mark({ type: 'ring', id: 'l', t0: 14, t1: 18.5, tone: 'dont', label: 'Hogging' });
+    S.step(18, 'info', "Priority isn't a licence to take everything", 'Being able to catch every wave does not mean you should. Taking turns matters more than who paddles hardest.');
+    S.step(21, 'do', 'L lets one go', 'L sits up and calls you into it. Sharing keeps the mood good, and the lineup returns the favor.');
+    S.mark({ type: 'ring', id: 'you', t0: 21, t1: 23.5, tone: 'prio', label: 'Your wave' });
+    S.step(26, 'info', 'Party waves: ask first', "Some friendly spots allow two surfers on one wave by agreement. Most don't. Never assume; ask.");
+  }
+});
+
+/* ---------- Scenarios, part 3 ---------- */
+SCEN.push({
+  id: 'missed', group: 'When it goes wrong', title: 'You missed the wave and are caught inside',
+  summary: "You went for it, didn't make it, and now you're sitting where the next wave lands, with someone about to ride it.",
+  build(G, S) {
+    S.rule = "Missed it? Clear the takeoff spot toward the whitewater, never across the rider's path, and rejoin at the back.";
+    S.duration = 30;
+    const T = tagText(G), ch = G.channel;
+    const you = S.actor('you', { name: 'You', tone: 'you' }).at(0, 1, -4);
+    const b = S.actor('b', { name: 'B', tone: 'n0' }).at(0, 4, -5.5);
+    const c = S.actor('c', { name: 'C', tone: 'n1' }).at(0, 7, -4.5);
+    S.crowd(Math.max(0, G.crowd - 3), { avoid: [[1, -4], [4, -5.5], [7, -4.5], [0.6, -3.6], [-2.5, -9], [8, -11]] });
+    const w1 = S.wave(7), w2 = S.wave(13), w3 = S.wave(20);
+    you.wait(5.2).goBy(6.8, 1, -0.6, 'paddle').goBy(7.4, 1.2, 1.6, 'sit').say(6.9, 'Missed it!');
+    you.wait(8.2).goBy(10.4, -4.5, -0.5);
+    you.wait(14.6).path([[-2.5, -9], [8, -11.5], [12.5, -7]], 'paddle', 3.4);
+    b.wait(8.6).goBy(11, 0.6, -3.6); b.ride(w2, { u0: 0.6 }); b.path(routeBack(G, b.last.u, b.last.v));
+    c.wait(14).goBy(16.5, 0, -3.5); c.ride(w3); c.path(routeBack(G, c.last.u, c.last.v));
+    const tx = firstTime(b, 12.5, b.rideEnd, p => p.u >= 6), px = b.pos(tx);
+    S.actor('ghost', { name: 'You?', tone: 'ghost', show: [8.2, tx + 2.5] }).at(0, 1.2, 1.6).wait(8.2).goBy(tx, px.u, px.v + 0.5).goBy(tx + 1.6, px.u + 1, px.v + 3.5, 'wipe');
+    S.step(0, 'info', 'Your turn', "You're first in the queue and a set is coming.");
+    S.mark({ type: 'ring', id: 'you', t0: 0, t1: 5, tone: 'prio', label: 'Your wave' });
+    S.step(5.2, 'info', 'You paddle, but miss it', 'It happens to everyone: too late, too far out, or not enough paddling.');
+    S.step(7.5, 'info', "Now you're caught inside", "You're sitting right where the next wave of the set will break, and B is lining up to take it.");
+    S.mark({ type: 'zone', zone: 'peak', t0: 7.5, t1: 10.5, tone: 'dont', label: "Don't stay here" });
+    S.step(8.2, 'do', 'Clear the takeoff spot, toward the whitewater', 'Paddle toward the part of the wave that breaks first, behind where B will ride. Get seaward if you have time.');
+    S.mark({ type: 'path', t0: 8.2, t1: 12.5, tone: 'do', pts: [[1.2, 1.6], [-4.5, -0.5]] });
+    S.step(9.4, 'dont', "Don't scramble toward the shoulder", "It feels like the way out, but it's exactly where B is heading. You'd be paddling across B's line.");
+    S.mark({ type: 'x', u: px.u + 0.5, v: px.v + 0.8, t0: tx - 0.2, t1: tx + 2.5, label: 'Collision' });
+    S.step(13.3, 'do', 'Take the hit and hold your board', 'If it breaks on you, duck dive or turtle roll. Never ditch your board with people around you.');
+    S.step(14.8, 'do', 'Get out in the lull, rejoin at the back', 'Use the gap after the wave to get out, then go around the back of the pack. In most lineups a missed wave counts as your turn.');
+    S.mark({ type: 'path', t0: 14.8, t1: 22, tone: 'do', pts: [[-4.5, -0.5], [-2.5, -9], [8, -11.5], [12.5, -7]] });
+    if (ch) S.step(23, 'info', 'Caught deep? Use the channel', `If you're caught far inside and the sets keep coming, paddle sideways into the channel ${T.chWhere} and go back out from there.`);
+    else S.step(23, 'info', 'Caught deep with no channel?', 'Work your way toward the end of the wave between sets, where the whitewater is weaker, and go out from there.');
+  }
+});
+
+SCEN.push({
+  id: 'set', group: 'When it goes wrong', title: 'A clean-up set arrives',
+  summary: 'Bigger waves break further out than usual. Everyone scrambles. What do you do with your board?',
+  build(G, S) {
+    S.rule = 'When a set comes, paddle out and wide early, and never let go of your board with someone behind you.';
+    S.duration = 28;
+    const o1 = { u: -2, v: -11 };
+    const o2 = G.outside ? { u: G.outside.u, v: G.outside.v - 2 } : { u: -2, v: -15.5 };
+    const w1 = S.wave(9, { origin: o1, size: 1.3 }), w2 = S.wave(14.5, { origin: o2, size: 1.5 }), w3 = S.wave(20, { origin: o2, size: 1.5 });
+    const tHit = (u, v) => Math.max(tBreakMain(G, w2, u), tAt(G, w2, u, v));
+    const pU = 0.3, pV = Math.min(o2.v + 2.5, -12.6);
+    const yU = 1.2, yV = pV + 2.5;
+    const you = S.actor('you', { name: 'You', tone: 'you' }).at(0, -1, -5).wait(2.4).goBy(9.5, yU, yV - 1).wait(10.5, 'paddle').goBy(11.6, yU, yV);
+    const p = S.actor('p', { name: 'P', tone: 'n1' }).at(0, -0.5, -8).wait(2.2).goBy(10.5, pU, pV);
+    const tP = tHit(pU, pV), tY = tHit(yU, yV);
+    p.wait(tP - 0.1, 'paddle').goBy(tP, pU, pV, 'ditch').goBy(tP + 1.7, pU, pV + 1.5, 'ditch').goBy(tP + 1.75, pU, pV + 1.5, 'sit');
+    you.wait(tY + 0.9, 'paddle').path([[2, o2.v - 0.5], [4, o2.v - 1.5]], 'paddle', 3);
+    p.wait(tP + 3).go(3, o2.v - 0.5);
+    const a = S.actor('a', { name: 'A', tone: 'n0' }).at(0, 6, -5).wait(2.2).go(11, -13.5).go(12.5, o2.v - 2, 'paddle', 2);
+    S.crowd(Math.max(0, G.crowd - 3), { avoid: [[-1, -5], [-0.5, -8], [6, -5], [1, -11], [0, -13]] }).forEach((c, i) => {
+      const l = c.last; c.wait(2.6 + (i % 4) * 0.35).go(l.u + 6, Math.min(l.v - 9, o2.v - 1), 'paddle', 3);
+    });
+    S.step(0, 'info', 'A normal lull', 'Everyone is in their usual spot. Then someone looks up.');
+    S.step(2.2, 'do', 'Paddle for the horizon, early', 'Head out, and slightly toward the shoulder, where waves break last. The earlier you go, the less you get caught.');
+    S.mark({ type: 'ring', id: 'a', t0: 2.2, t1: 9, tone: 'do', label: 'Out and wide' });
+    S.step(w1.tPeak - 2.5, 'info', 'Over the first one', 'The first wave passes underneath. The next ones are bigger and break further out.');
+    S.step(tP - 0.6, 'dont', 'P throws the board away', 'Ditching the board to dive under is easiest for P and most dangerous for you. It flies back on its leash, straight at whoever is behind.');
+    S.mark({ type: 'ring', id: 'p', t0: tP - 0.2, t1: tP + 2.4, tone: 'dont', label: 'Ditched board' });
+    S.mark({ type: 'x', u: pU + 0.4, v: pV + 3.2, t0: tP + 0.3, t1: tP + 2.6 });
+    S.step(tY - 0.3, 'do', 'Duck dive or turtle roll, and keep hold', 'Shortboard: push it under and follow it down. Longboard: roll over and hold the rails tight. Either way, the board stays in your hands.');
+    S.step(tY + 2.5, 'info', 'Keep going between waves', 'Use every gap to get further out before the next one arrives.');
+    S.step(w3.tPeak + 1.5, 'do', 'After the set: regroup', 'Check the people around you are OK, catch your breath, and settle back in. The rotation stays as it was.');
+    S.step(w3.tPeak + 4.5, 'info', "Can't hold on in waves this size?", "Then the inside, or a smaller day, is the better choice. It's not about pride; a loose board can really hurt someone.");
+  }
+});
+
+SCEN.push({
+  id: 'inside', group: 'When it goes wrong', title: 'On the inside when a rider comes through', needs: { inside: 'on' },
+  summary: "You're on the inside section and someone is riding toward you from the main peak.",
+  build(G, S) {
+    S.rule = 'On the inside, a rider coming from the main peak always has priority. Look toward the peak before you go.';
+    S.duration = 30;
+    const I = G.inside;
+    const a = S.actor('a', { name: 'A', tone: 'n0' }).at(0, 0, -3.5);
+    const w1 = S.wave(6), w2 = S.wave(16);
+    a.ride(w1, { tEnd: 5.77 + (I.u + 4.5) / PEEL, after: 'wipe' });
+    const vA = u => a.pos(5.77 + u / PEEL).v;
+    const tB = 5.77 + (I.u + 1) / PEEL, uB = I.u + 5;
+    const b = S.actor('b', { name: 'B', tone: 'n1' }).at(0, uB, vLine(G, w1, uB, tB) - 2.2);
+    b.ride(w1, { u0: uB, t0: tB, uEnd: I.u + 13 });
+    const yu = I.u + 2, yv = vA(yu) + 3;
+    const you = S.actor('you', { name: 'You', tone: 'you' }).at(0, yu, yv);
+    S.actor('k', { tone: 'crowd', board: 'long' }).at(0, I.u + 9, vA(I.u + 9) + 3.5);
+    you.wait(3.4).goBy(5.6, yu - 5.5, yv + 0.5);
+    you.wait(11).goBy(13.5, I.u, I.v - 3);
+    you.ride(w2, { base: 'in', u0: I.u, uEnd: I.u + 12 });
+    const tYou = you.rideEnd;
+    you.path([[I.u + 14, I.v - 6]]);
+    a.wait(10.5).path(routeBack(G, a.last.u, a.last.v));
+    b.path(routeBack(G, b.last.u, b.last.v));
+    S.crowd(Math.max(0, G.crowd - 4), { avoid: [[0, -3.5]] });
+    const pa = a.pos(a.rideEnd);
+    S.step(0, 'info', 'The inside section', 'Smaller reforming waves, fewer people, often beginners. A good place to start, as long as you watch what is coming from the main peak.');
+    S.mark({ type: 'zone', zone: 'inside', t0: 0, t1: 3.5, tone: 'info', label: 'Inside section' });
+    S.step(3, 'info', 'A is riding from the main peak', 'A took off at the main peak and is coming all the way through. A has priority over everyone on the inside.');
+    S.mark({ type: 'ring', id: 'a', t0: 3.4, t1: a.rideEnd, tone: 'prio', label: 'Priority' });
+    S.step(3.6, 'do', "Get out of A's line", 'Move toward the whitewater, behind the path A is taking, and let this wave go.');
+    S.mark({ type: 'path', t0: 3.6, t1: 7.5, tone: 'do', pts: [[yu, yv], [yu - 5.5, yv + 0.5]] });
+    S.step(tB - 1.6, 'dont', 'B goes anyway', "From the inside, B sees an open face and goes without looking toward the peak. That's a drop-in on A.");
+    S.mark({ type: 'ring', id: 'b', t0: tB - 1.2, t1: tB + 2, tone: 'dont', label: 'Drop-in' });
+    S.mark({ type: 'x', u: pa.u + 1, v: pa.v, t0: a.rideEnd, t1: a.rideEnd + 2.5, label: 'Wave ruined' });
+    S.step(12.5, 'do', 'Take the waves nobody is riding', 'This one breaks at the main peak with no one on it and stands up again on the inside. Look toward the peak once more, then go.');
+    S.step(tYou - 0.5, 'do', 'Kick out and clear the path', 'Get off the wave and out of the way when you finish. The next rider may already be coming from the main peak.');
+    S.step(tYou + 3, 'info', 'Know where you fit', "Sitting inside isn't second class. It's the right place to learn without being in anyone's way.");
+  }
+});
+
+SCEN.push({
+  id: 'exit', group: 'Getting in', title: 'Head back to the beach',
+  summary: 'Riding one in, or paddling in without a wave: where to go and where not to.',
+  build(G, S) {
+    S.rule = 'Ride one in or paddle in wide of the peak. Stay out of the paddle-out lane, off rocks and off shallow reef.';
+    const pe = G.peelEnd, sv = G.shoreV, ch = G.channel, bt = G.bottom;
+    const you = S.actor('you', { name: 'You', tone: 'you' }).at(0, 0.5, -3.8);
+    const b = S.actor('b', { name: 'B', tone: 'n0' }).at(0, 8, -6);
+    S.crowd(Math.max(0, G.crowd - 3), { avoid: [[0.5, -3.8], [8, -6], [13, -6]] });
+    const w1 = S.wave(6), w2 = S.wave(15), w3 = S.wave(24);
+    const reef = bt === 'reef', chEdge = reef && ch && ch.u > 0;
+    let tRideEnd;
+    if (reef) {
+      you.ride(w1, { u0: 0.5, uEnd: pe - 4 }); tRideEnd = you.rideEnd;
+      const l = you.last;
+      if (chEdge) { const eu = ch.u - ch.w / 2 + 1; you.path([[eu, l.v + 1], [eu, sv - 0.5]]); }
+      else you.path([[pe + 6, l.v + 1], [pe + 6, sv - 0.5]]);
+      you.go(you.last.u, sv + 4.5, 'walk');
+    } else { you.ride(w1, { u0: 0.5, after: 'straight' }); tRideEnd = you.rideEnd; }
+    const tYouBeach = you.last.t;
+    const bu = chEdge ? ch.u - ch.w / 2 + 1 : ch && ch.u > 0 ? Math.min(pe + 5, ch.u - ch.w / 2 - 2) : pe + 5;
+    b.wait(11).path([[bu, -2], [bu, sv - 0.5]], 'paddle', 3.4).go(bu, sv + 4.5, 'walk');
+    const eu0 = entryU(G), c = S.actor('c', { name: 'C', tone: 'n1' }).at(0, eu0 + 2, sv + 5, 'stand').wait(4, 'stand').go(eu0, sv - 0.5, 'walk').path(routeOut(G));
+    S.duration = Math.ceil(Math.max(30, b.last.t + 2, tYouBeach + 2));
+    S.step(0, 'info', 'Time to go in', 'Tired, cold or done: the way in deserves as much care as the way out.');
+    S.step(2.5, 'do', 'The best exit is a wave', 'Wait for your turn and ride one in. It is the fastest way in, and it keeps you out of everyone else\'s path.');
+    if (reef) {
+      S.step(tRideEnd - 0.8, 'do', 'Kick out before the reef gets shallow', 'The inside of a reef can be very shallow. Get off the wave early and go in where the water is deeper.');
+      if (chEdge) S.step(tRideEnd + 2.5, 'do', 'Go in along the edge of the channel', 'At many reefs the channel is the safest way over the reef. Keep to its edge, out of the way of people paddling out.');
+      else S.step(tRideEnd + 2.5, 'do', 'Go in past the end of the wave', 'Paddle in where the waves stop breaking and the bottom is deeper or sandy.');
+    } else S.step(tRideEnd - 0.5, 'do', 'Ride the whitewater straight in', 'When the wave ends, go straight to the beach in the foam, lying down if you like. Stay clear of people paddling out.');
+    S.step(11, 'do', 'No wave? Paddle in wide', 'B goes in down the shoulder side, past the end of the wave, and lets the whitewater push them in.');
+    S.mark({ type: 'path', t0: 11, t1: 18, tone: 'do', pts: [[8, -6], [bu, -2], [bu, sv]] });
+    S.step(13.5, 'dont', 'Not through the takeoff zone', 'Paddling in through the peak puts you in front of every rider and every breaking wave.');
+    S.mark({ type: 'path', t0: 13.5, t1: 19, tone: 'dont', pts: [[3, -4], [2, 10], [2, sv]], label: 'Through the peak' });
+    let t = 19;
+    if (ch && !chEdge) {
+      S.step(t, 'dont', 'Not up the middle of the channel', 'The current flows out, so you would be fighting it, and you would be in the lane people use to paddle out.');
+      S.mark({ type: 'path', t0: t, t1: t + 5, tone: 'dont', pts: [[ch.u, -4], [ch.u, sv]], label: 'Against the current' }); t += 4.5;
+    }
+    if (bt === 'point') {
+      S.step(t, 'dont', 'Stay off the rocks', 'The rocks along the point are slippery, sharp and hit by waves. Go in on the sand or at the usual exit.');
+      S.mark({ type: 'zone', zone: 'rocks', t0: t, t1: t + 5, tone: 'dont', label: 'Rocks' }); t += 4.5;
+    }
+    S.step(Math.max(t, S.duration - 4), 'info', 'Mind the people coming out', 'On the beach and in the shallows, give way to people heading out, and carry your board so it does not swing into anyone.');
+    S.mark({ type: 'zone', zone: 'exit', t0: S.duration - 6, t1: S.duration, tone: 'do', label: 'Way in' });
+  }
+});
+
+SCEN.push({
+  id: 'rip', group: 'Getting in', title: 'The current pulls you back out', needs: { channel: 'any' },
+  summary: "You're trying to come in through the channel and going backwards.",
+  build(G, S) {
+    S.rule = "In the channel's current? Don't fight it. Paddle sideways out of it, then let the whitewater bring you in.";
+    const ch = G.channel, sv = G.shoreV, out = ch.u > 0 ? -1 : 1;
+    const uSide = ch.u + out * (ch.w / 2 + 7);
+    const vR = clamp(vBreak(G, uSide) + 6, 8, sv - 12);
+    const you = S.actor('you', { name: 'You', tone: 'you' }).at(0, ch.u, vR + 7, 'paddle', [0, 1]).goBy(6.3, ch.u + out * 0.5, vR + 1.5, 'paddle', [0, 1]);
+    you.goBy(10.5, uSide, vR - 1, 'paddle');
+    const wR = S.wave(16);
+    S.wave(5); S.wave(26);
+    you.whiteIn(wR);
+    const tIn = you.last.t;
+    S.duration = Math.ceil(Math.max(30, tIn + 4));
+    S.crowd(Math.max(0, G.crowd - 1), {});
+    const c = S.actor('c', { name: 'C', tone: 'n1' }).at(0, ch.u + 0.8, sv + 5, 'stand').wait(3, 'stand').go(ch.u + 0.8, sv - 0.5, 'walk').path([[ch.u + 0.8, -6]]);
+    S.step(0, 'info', 'Heading in through the channel', "You're paddling for the beach, but the water in the channel is flowing out to sea.");
+    S.mark({ type: 'zone', zone: 'channel', t0: 0, t1: 6, tone: 'info', label: 'Current flows out' });
+    S.step(1.8, 'dont', 'Fighting the current head-on', 'You are paddling hard and going backwards. Getting exhausted is the real danger of a rip, not being pulled under.');
+    S.mark({ type: 'path', t0: 1.8, t1: 7, tone: 'dont', pts: [[ch.u, vR + 5], [ch.u, sv]], label: 'Straight in' });
+    S.step(6.4, 'do', 'Paddle sideways, out of the current', 'Rip currents are narrow. Paddle parallel to the beach, toward where waves are breaking, and you are out of it in a few strokes.');
+    S.mark({ type: 'path', t0: 6.4, t1: 11, tone: 'do', pts: [[ch.u, vR + 1.5], [uSide, vR - 1]] });
+    S.step(11.5, 'do', 'Let the whitewater carry you in', 'Once you are beside the channel, broken waves push you toward the beach. Lie down and ride them in.');
+    S.step(Math.min(tIn - 3, 20), 'info', 'If you lose your board', 'Float and stay calm, and raise an arm to signal for help. Swim parallel to the beach, or let the current carry you past the break where it fades, then come in beside it.');
+    S.step(tIn, 'do', 'Use the channel to go out, not in', 'The current that gives you a free ride out works like a treadmill on the way in.');
+  }
+});
+
+/* order for the menu */
+const GROUPS = ['Getting out', 'In the lineup', 'Breaking the rules', 'When it goes wrong', 'Getting in'];
+SCEN.sort((a, b) => GROUPS.indexOf(a.group) - GROUPS.indexOf(b.group));
+
+/* ---------- Rendering ---------- */
+const cv = document.getElementById('sea'), ctx = cv.getContext('2d');
+let SC = 7, DPR = 1, FIG = 1;
+const BOARD = { you: '#ff6b4a', n0: '#8fb0ff', n1: '#c39bff', n2: '#5fd3c5', n3: '#ffd166', n4: '#f78fb3', crowd: '#e6ecee', ghost: '#ff4d5e' };
+const MT = { do: '#3ddc97', dont: '#ff4d5e', prio: '#ffd447', info: '#ffffff' };
+const MONO = '"IBM Plex Mono", ui-monospace, Menlo, monospace', SANS = '"Atkinson Hyperlegible", system-ui, sans-serif';
+const px = n => n / SC;
+function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const hash = s => { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return (h >>> 0) / 4294967296; };
+
+function resizeCanvas() {
+  const w = cv.parentElement.clientWidth || 600;
+  DPR = Math.min(2.5, window.devicePixelRatio || 1);
+  cv.width = Math.round(w * DPR); cv.height = Math.round(w * WH / WW * DPR);
+  cv.style.height = (w * WH / WW) + 'px';
+  SC = w / WW; FIG = clamp(20 / (2.5 * SC), 1, 2.3);
+}
+
+function pointLand(G) {
+  const sv = G.shoreV;
+  return [[-11, 5], [-8, 9], [-9.5, 15], [-6.5, 22], [-7.5, 30], [-3.5, 38], [-2, sv], [-2, WH], [-220, WH], [-220, 3], [-30, 1.5], [-18, 2.5]];
+}
+function polyPath(g, G, pts) { g.beginPath(); pts.forEach((p, i) => { const q = W(G, p[0], p[1]); i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); }); g.closePath(); }
+
+function buildStatic(G) {
+  const c = document.createElement('canvas'); c.width = cv.width; c.height = cv.height;
+  const g = c.getContext('2d'); g.setTransform(SC * DPR, 0, 0, SC * DPR, 0, 0);
+  const grd = g.createLinearGradient(0, 0, 0, SHORE_Y);
+  grd.addColorStop(0, '#0a3d55'); grd.addColorStop(0.45, '#0e6580'); grd.addColorStop(0.8, '#1d8ea3'); grd.addColorStop(1, '#4dbdbe');
+  g.fillStyle = grd; g.fillRect(0, 0, WW, SHORE_Y + 1);
+  const r = rng(11);
+  if (G.bottom === 'beach') {
+    for (let i = 0; i < 7; i++) {
+      const u = -G.behind - 4 + i * (G.peelEnd + G.behind + 8) / 6, p = W(G, u, vBreak(G, u) + 3 + r() * 3);
+      if (inChannel(G, u)) continue;
+      g.fillStyle = 'rgba(232,220,165,0.12)'; g.beginPath(); g.ellipse(p.x, p.y, 7 + r() * 4, 2.6 + r(), 0, 0, 7); g.fill();
+    }
+  } else {
+    const lo = -G.behind - 3, hi = G.peelEnd + 3, band = (d0, d1) => { const top = [], bot = []; for (let u = lo; u <= hi + 0.01; u += 1.5) { top.push([u, vBreak(G, u) + d0]); bot.push([u, vBreak(G, u) + d1]); } return top.concat(bot.reverse()); };
+    for (let k = 0; k < 5; k++) { g.fillStyle = 'rgba(70,110,90,0.05)'; polyPath(g, G, band(-3 + k * 0.9, 16 - k * 1.6)); g.fill(); }
+    for (let i = 0; i < 900; i++) {
+      const u = lo + r() * (hi - lo);
+      if (inChannel(G, u)) continue;
+      const p = W(G, u, vBreak(G, u) - 2 + r() * 17);
+      g.fillStyle = r() < 0.35 ? `rgba(215,225,190,${0.04 + r() * 0.06})` : `rgba(30,70,60,${0.05 + r() * 0.09})`;
+      g.beginPath(); g.arc(p.x, p.y, 0.15 + r() * 0.45, 0, 7); g.fill();
+    }
+  }
+  if (G.channel) {
+    const a = W(G, G.channel.u - G.channel.w / 2, 0).x, b = W(G, G.channel.u + G.channel.w / 2, 0).x, x0 = Math.min(a, b), x1 = Math.max(a, b);
+    const lg = g.createLinearGradient(x0, 0, x1, 0);
+    lg.addColorStop(0, 'rgba(3,28,45,0)'); lg.addColorStop(0.25, 'rgba(3,28,45,0.4)'); lg.addColorStop(0.75, 'rgba(3,28,45,0.4)'); lg.addColorStop(1, 'rgba(3,28,45,0)');
+    g.fillStyle = lg; g.fillRect(x0, 0, x1 - x0, SHORE_Y);
+  }
+  g.fillStyle = '#e6d2a6'; g.fillRect(0, SHORE_Y, WW, WH - SHORE_Y);
+  g.fillStyle = '#ccb487'; g.fillRect(0, SHORE_Y, WW, 1.3);
+  for (let i = 0; i < 260; i++) { g.fillStyle = `rgba(120,95,60,${0.08 + r() * 0.12})`; g.fillRect(r() * WW, SHORE_Y + 1.5 + r() * (WH - SHORE_Y - 1.5), 0.18, 0.18); }
+  const ov = document.createElement('canvas'); ov.width = cv.width; ov.height = cv.height;
+  if (G.bottom === 'point') {
+    { const g = ov.getContext('2d'); g.setTransform(SC * DPR, 0, 0, SC * DPR, 0, 0);
+    const land = pointLand(G);
+    g.fillStyle = '#6b6553'; polyPath(g, G, land); g.fill();
+    g.fillStyle = '#5c6b45'; polyPath(g, G, land.map(([u, v]) => [u - 4, v + 3])); g.fill();
+    g.strokeStyle = '#3f3a2f'; g.lineWidth = 0.6; polyPath(g, G, land); g.stroke();
+    for (let i = 0; i < 90; i++) {
+      const k = Math.floor(r() * 6), a = land[k], b = land[k + 1], f = r(), q = W(G, a[0] + (b[0] - a[0]) * f + (r() - 0.6) * 1.6, a[1] + (b[1] - a[1]) * f + (r() - 0.5) * 1.2);
+      g.fillStyle = r() < 0.5 ? '#4a4538' : '#827b66'; g.beginPath(); g.arc(q.x, q.y, 0.3 + r() * 0.6, 0, 7); g.fill();
+    }
+    }
+  }
+  c.overlay = ov;
+  return c;
+}
+
+function pill(x, y, text, bg, fg, size = 11.5, font = MONO, weight = '600') {
+  ctx.font = `${weight} ${px(size)}px ${font}`;
+  const w = ctx.measureText(text).width + px(10), h = px(size + 7);
+  x = clamp(x, w / 2 + 0.4, WW - w / 2 - 0.4); y = clamp(y, h / 2 + 0.4, WH - h / 2 - 0.4);
+  ctx.fillStyle = bg; ctx.beginPath(); ctx.roundRect(x - w / 2, y - h / 2, w, h, px(4)); ctx.fill();
+  ctx.fillStyle = fg; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, x, y + px(0.5));
+  return { w, h, x, y };
+}
+
+function drawWave(G, w, t) {
+  const pts = [];
+  for (let x = -1; x <= WW + 1; x += 0.8) {
+    const u = (x - G.px) * G.dir, y = G.py + vLine(G, w, u, t);
+    if (y < -5 || y > SHORE_Y + 8) { pts.push(null); continue; }
+    if (y > SHORE_Y - 0.4) { pts.push({ x, y, swash: true }); continue; }
+    const fa = foamAt(G, w, u, t);
+    pts.push({ x, y, f: fa.f, age: fa.age });
+  }
+  const runs = (test) => { const out = []; let cur = []; for (const p of pts) { if (p && test(p)) cur.push(p); else { if (cur.length > 1) out.push(cur); cur = []; } } if (cur.length > 1) out.push(cur); return out; };
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (const run of runs(p => !p.swash && p.f < 0.35)) {
+    ctx.strokeStyle = `rgba(3,22,36,${0.16 + 0.07 * w.size})`; ctx.lineWidth = 0.75 * w.size;
+    ctx.beginPath(); run.forEach((p, i) => i ? ctx.lineTo(p.x, p.y + 0.6) : ctx.moveTo(p.x, p.y + 0.6)); ctx.stroke();
+    ctx.strokeStyle = `rgba(200,245,248,${0.24 + 0.08 * w.size})`; ctx.lineWidth = 0.38 * w.size;
+    ctx.beginPath(); run.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.stroke();
+  }
+  const maxW = 1.8 + w.size * 2;
+  for (const run of runs(p => !p.swash && p.f >= 0.12)) {
+    const nz = x => 0.78 + 0.22 * Math.sin(x * 0.9 + w.id * 3.1) + 0.12 * Math.sin(x * 2.3 + w.id);
+    const wd = run.map(p => Math.min(1.1 + p.age * 2.6, maxW) * (0.45 + 0.55 * p.f) * nz(p.x));
+    const fm = run.reduce((s, p) => s + p.f, 0) / run.length;
+    for (const [frac, al] of [[1, 0.34], [0.55, 0.52]]) {
+      ctx.fillStyle = `rgba(250,254,255,${al * fm})`;
+      ctx.beginPath();
+      run.forEach((p, i) => i ? ctx.lineTo(p.x, p.y + 0.35) : ctx.moveTo(p.x, p.y + 0.35));
+      for (let i = run.length - 1; i >= 0; i--) ctx.lineTo(run[i].x, run[i].y - wd[i] * frac);
+      ctx.closePath(); ctx.fill();
+    }
+    for (let i = 0; i < run.length; i += 1) {
+      const a = run[i], h = hash(w.id + '/' + Math.round(a.x * 10)), h2 = hash(w.id + '|' + Math.round(a.x * 10));
+      ctx.fillStyle = `rgba(255,255,255,${0.45 * a.f})`;
+      ctx.beginPath(); ctx.arc(a.x + (h2 - 0.5) * 0.6, a.y - wd[i] * (0.8 + h * 0.6), 0.15 + h * 0.3, 0, 7); ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.95)'; ctx.lineWidth = 0.3;
+    ctx.beginPath(); run.forEach((p, i) => i ? ctx.lineTo(p.x, p.y + 0.3) : ctx.moveTo(p.x, p.y + 0.3)); ctx.stroke();
+  }
+  for (const run of runs(p => p.swash)) {
+    const a = clamp(1 - (run[0].y - SHORE_Y) / 8, 0, 1);
+    ctx.strokeStyle = `rgba(255,255,255,${0.7 * a})`; ctx.lineWidth = 0.35;
+    ctx.beginPath(); run.forEach((p, i) => { const y = SHORE_Y + (p.y - SHORE_Y) * 0.32; i ? ctx.lineTo(p.x, y) : ctx.moveTo(p.x, y); }); ctx.stroke();
+  }
+}
+
+function boardPath(len, wid) {
+  ctx.beginPath(); ctx.moveTo(len / 2, 0);
+  ctx.quadraticCurveTo(len * 0.22, -wid / 2, -len * 0.3, -wid / 2 * 0.95);
+  ctx.quadraticCurveTo(-len / 2, -wid * 0.45, -len / 2, 0);
+  ctx.quadraticCurveTo(-len / 2, wid * 0.45, -len * 0.3, wid / 2 * 0.95);
+  ctx.quadraticCurveTo(len * 0.22, wid / 2, len / 2, 0); ctx.closePath();
+}
+function drawBoard(len, wid, col) {
+  boardPath(len, wid); ctx.fillStyle = col; ctx.fill();
+  ctx.strokeStyle = 'rgba(0,20,30,0.45)'; ctx.lineWidth = 0.09; ctx.stroke();
+  ctx.strokeStyle = 'rgba(0,0,0,0.12)'; ctx.lineWidth = 0.05; ctx.beginPath(); ctx.moveTo(len * 0.45, 0); ctx.lineTo(-len * 0.45, 0); ctx.stroke();
+}
+const SUIT = '#17232a', SKIN = '#c8946b';
+function drawSurfer(a, x, y, ang, s, t) {
+  const long = a.board === 'long', len = (long ? 3.4 : 2.5) * FIG, wid = (long ? 0.95 : 0.78) * FIG, col = BOARD[a.tone] || BOARD.crowd;
+  const k = FIG, seed = hash(a.id) * 6.28;
+  ctx.save(); ctx.translate(x, y);
+  if (a.tone === 'ghost') ctx.globalAlpha = 0.6;
+  if (s === 'ditch') {
+    const off = 2.6 * k, ba = t * 5 + seed;
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 0.08; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0.3, off); ctx.stroke();
+    ctx.save(); ctx.translate(0.3, off); ctx.rotate(ba); drawBoard(len, wid, col); ctx.restore();
+    ctx.globalAlpha *= 0.55; ctx.fillStyle = SUIT; ctx.beginPath(); ctx.arc(0, 0, 0.4 * k, 0, 7); ctx.fill();
+    ctx.globalAlpha = 1; ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 0.16; ctx.beginPath(); ctx.arc(0, 0, 1 * k, 0, 7); ctx.stroke();
+    ctx.restore(); return;
+  }
+  if (s === 'wipe') {
+    ctx.save(); ctx.translate(0.6 * k, 0.6 * k); ctx.rotate(t * 7 + seed); drawBoard(len, wid, col); ctx.restore();
+    ctx.fillStyle = SUIT; ctx.beginPath(); ctx.arc(-0.5 * k, -0.3 * k, 0.38 * k, 0, 7); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 0.18; ctx.beginPath(); ctx.arc(0, 0, 1.5 * k, 0, 7); ctx.stroke();
+    ctx.restore(); return;
+  }
+  if (s === 'stand' || s === 'walk') {
+    const step = s === 'walk' ? Math.sin(t * 9 + seed) * 0.12 : 0;
+    ctx.rotate(ang);
+    ctx.save(); ctx.translate(0, 0.62 * k); drawBoard(len * 0.92, wid * 0.85, col); ctx.restore();
+    ctx.fillStyle = SUIT; ctx.beginPath(); ctx.ellipse(step, 0, 0.3 * k, 0.5 * k, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = SKIN; ctx.beginPath(); ctx.arc(step, 0, 0.26 * k, 0, 7); ctx.fill();
+    ctx.restore(); return;
+  }
+  ctx.rotate(ang);
+  const under = s === 'duck';
+  if (under) ctx.globalAlpha *= 0.35;
+  drawBoard(len, wid, col);
+  if (s === 'ride') {
+    ctx.fillStyle = SUIT; ctx.beginPath(); ctx.ellipse(-0.05 * k, 0, 0.3 * k, 0.56 * k, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = SUIT; ctx.lineWidth = 0.16 * k; ctx.beginPath(); ctx.moveTo(-0.05 * k, -0.5 * k); ctx.lineTo(0.25 * k, -1 * k); ctx.moveTo(-0.05 * k, 0.5 * k); ctx.lineTo(-0.3 * k, 1 * k); ctx.stroke();
+    ctx.fillStyle = SKIN; ctx.beginPath(); ctx.arc(0.02 * k, 0, 0.25 * k, 0, 7); ctx.fill();
+  } else if (s === 'paddle' || s === 'belly') {
+    ctx.fillStyle = SUIT; ctx.beginPath(); ctx.ellipse(-0.12 * len, 0, 0.75 * k, 0.27 * k, 0, 0, 7); ctx.fill();
+    const ph = s === 'paddle' ? Math.sin(t * 7 + seed) : 0.2;
+    ctx.strokeStyle = SUIT; ctx.lineWidth = 0.14 * k; ctx.beginPath();
+    ctx.moveTo(0.25 * k, -0.25 * k); ctx.lineTo((0.3 + 0.45 * ph) * k, -0.62 * k);
+    ctx.moveTo(0.25 * k, 0.25 * k); ctx.lineTo((0.3 - 0.45 * ph) * k, 0.62 * k); ctx.stroke();
+    ctx.fillStyle = SKIN; ctx.beginPath(); ctx.arc(0.5 * k, 0, 0.24 * k, 0, 7); ctx.fill();
+  } else {
+    ctx.fillStyle = SUIT; ctx.beginPath(); ctx.ellipse(-0.18 * len, 0, 0.32 * k, 0.5 * k, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = SKIN; ctx.beginPath(); ctx.arc(-0.16 * len, 0, 0.26 * k, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+  if (under) { ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 0.16; ctx.beginPath(); ctx.arc(x, y, 1.25 * k, 0, 7); ctx.stroke(); }
+}
+
+function actorScreen(G, S, a, t) {
+  const p = a.pos(t);
+  if (!p) return null;
+  let s = p.s;
+  const onBeach = p.v > G.shoreV + 0.3;
+  if (onBeach) s = p.moving ? 'walk' : 'stand';
+  else if ((s === 'sit' || s === 'paddle') && foamHit(G, S.waves, p.u, p.v, t)) s = 'duck';
+  let hu = 0, hv = -1;
+  if (p.f) [hu, hv] = p.f;
+  else if (p.moving) { const q = a.pos(Math.max(0, t - 0.2)); if (Math.hypot(p.u - q.u, p.v - q.v) > 1e-3) { hu = p.u - q.u; hv = p.v - q.v; } }
+  let ang = Math.atan2(hv, G.dir * hu);
+  if (!p.moving && !p.f && !onBeach) ang += (hash(a.id) - 0.5) * 0.6;
+  const q = W(G, p.u, p.v);
+  const bob = (s === 'sit') ? Math.sin(t * 1.7 + hash(a.id) * 9) * 0.12 : 0;
+  return { x: q.x, y: q.y + bob, ang, s, p };
+}
+
+function drawScene(t) {
+  const G = st.G, S = st.S;
+  if (!G) return;
+  const key = cv.width + 'x' + cv.height + JSON.stringify(st.set);
+  if (st.staticKey !== key) { st.staticCanvas = buildStatic(G); st.staticKey = key; }
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(st.staticCanvas, 0, 0);
+  ctx.setTransform(SC * DPR, 0, 0, SC * DPR, 0, 0);
+  if (G.channel) {
+    const cx = W(G, G.channel.u, 0).x;
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 0.25;
+    for (let y = SHORE_Y - 3; y > -6; y -= 7) {
+      const yy = y - ((t * 1.6) % 7);
+      if (yy < 1 || yy > SHORE_Y - 2) continue;
+      ctx.beginPath(); ctx.moveTo(cx - 1.1, yy + 0.9); ctx.lineTo(cx, yy); ctx.lineTo(cx + 1.1, yy + 0.9); ctx.stroke();
+    }
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 0.35; ctx.beginPath();
+  for (let x = 0; x <= WW; x += 1) { const y = SHORE_Y + 0.15 + Math.sin(x * 0.7 + t * 1.3) * 0.18; x ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+  ctx.stroke();
+  LBL = [];
+  if (st.set.labels === 'on') drawZoneLabels(G);
+  drawMarks(G, S, t, 'under');
+  for (const w of S.waves) drawWave(G, w, t);
+  if (G.bottom === 'point') { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(st.staticCanvas.overlay, 0, 0); ctx.setTransform(SC * DPR, 0, 0, SC * DPR, 0, 0); }
+  const scr = [];
+  for (const a of S.actors) {
+    if (a.show && (t < a.show[0] || t > a.show[1])) continue;
+    const r = actorScreen(G, S, a, t); if (!r) continue;
+    scr.push([a, r]);
+    if (r.s === 'ride' || r.s === 'belly') {
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 0.3; ctx.beginPath(); ctx.moveTo(r.x, r.y);
+      for (let k = 1; k <= 6; k++) { const pp = a.pos(t - k * 0.12); const q = W(G, pp.u, pp.v); ctx.lineTo(q.x, q.y); }
+      ctx.stroke();
+    }
+  }
+  scr.sort((A, B) => (A[0].tone === 'crowd' ? 0 : 1) - (B[0].tone === 'crowd' ? 0 : 1));
+  for (const [a, r] of scr) drawSurfer(a, r.x, r.y, r.ang, r.s, t);
+  drawMarks(G, S, t, 'over', scr);
+  drawTags(G, S, t, scr);
+}
+
+function drawZoneLabels(G) {
+  const pe = G.peelEnd, L = [];
+  L.push(['PEAK', G.aframe ? 0 : -3.2, 3]);
+  L.push(['LINEUP', 6, -14.5]);
+  L.push(['IMPACT ZONE', pe * 0.42, vBreak(G, pe * 0.42) + 5.5]);
+  if (!G.aframe) L.push(['SHOULDER', pe * 0.82, vBreak(G, pe * 0.82) - 8]);
+  if (G.channel) L.push(['CHANNEL', G.channel.u, G.shoreV - 9]);
+  if (G.outside) L.push(['OUTSIDE PEAK', G.outside.u, G.outside.v - 3.6]);
+  if (G.inside) L.push(['INSIDE SECTION', G.inside.u + 7, G.inside.v + 4]);
+  if (G.bottom === 'point') L.push(['THE POINT', -16, 24]);
+  L.push(['BEACH', G.bottom === 'point' ? pe * 0.5 : (G.aframe ? 0 : -8), G.shoreV + 7]);
+  ctx.font = `600 ${px(10.5)}px ${MONO}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const [txt, u, v] of L) {
+    const q = W(G, u, v); if (q.x < 3 || q.x > WW - 3) continue;
+    const tw = ctx.measureText(txt).width, th = px(13); let y = q.y;
+    for (let k = 0; k < 4 && !lblFree(q.x - tw / 2, q.x + tw / 2, y - th / 2, y + th / 2); k++) y += th * 1.15;
+    LBL.push([q.x - tw / 2 - px(2), q.x + tw / 2 + px(2), y - th / 2, y + th / 2]);
+    ctx.lineWidth = px(3.2); ctx.strokeStyle = 'rgba(3,30,44,0.55)'; ctx.strokeText(txt, q.x, y);
+    ctx.fillStyle = 'rgba(255,255,255,0.88)'; ctx.fillText(txt, q.x, y);
+  }
+}
+
+/* ---------- Marks: zones, paths, rings, collisions, tags ---------- */
+const hexA = (h, a) => `rgba(${parseInt(h.slice(1, 3), 16)},${parseInt(h.slice(3, 5), 16)},${parseInt(h.slice(5, 7), 16)},${a})`;
+let LBL = [];
+const lblFree = (x0, x1, y0, y1) => !LBL.some(b => b[0] < x1 && b[1] > x0 && b[2] < y1 && b[3] > y0);
+function placePill(x, y, text, bg, fg, size = 11, dir = 1) {
+  ctx.font = `600 ${px(size)}px ${MONO}`;
+  const w = ctx.measureText(text).width + px(10), h = px(size + 7);
+  x = clamp(x, w / 2 + 0.4, WW - w / 2 - 0.4);
+  for (let k = 0; k < 6 && !lblFree(x - w / 2, x + w / 2, y - h / 2, y + h / 2); k++) y += dir * h * 1.1;
+  LBL.push([x - w / 2, x + w / 2, y - h / 2, y + h / 2]);
+  return pill(x, y, text, bg, fg, size);
+}
+const inkOn = tone => (tone === 'dont' ? '#ffffff' : '#06212a');
+
+function zoneShape(G, z) {
+  const pe = G.peelEnd, b = G.aframe ? pe : G.behind, sv = G.shoreV, ch = G.channel;
+  if (z === 'peak') return { c: [0, 0], r: 3.6 };
+  if (z === 'outside') return { c: [G.outside.u, G.outside.v], r: 4.6 };
+  if (z === 'inside') return { c: [G.inside.u + 5, G.inside.v], r: 7, ry: 4.2 };
+  if (z === 'exit') {
+    const u = G.bottom === 'reef' ? (ch && ch.u > 0 ? ch.u - ch.w / 2 + 1 : pe + 6) : pe - 1;
+    return { c: [u, sv + 3.5], r: 3.6 };
+  }
+  if (z === 'lineup') return G.aframe ? { poly: [[-14, -12.5], [14, -12.5], [14, -2.5], [-14, -2.5]] } : { poly: [[-6, -12.5], [17, -12.5], [17, -2.5], [-6, -2.5]] };
+  if (z === 'channel') return { poly: [[ch.u - ch.w / 2, -PY - 2], [ch.u + ch.w / 2, -PY - 2], [ch.u + ch.w / 2, sv], [ch.u - ch.w / 2, sv]] };
+  if (z === 'rocks') return { poly: [[-6.5, 22], [-7.5, 30], [-3.5, 38], [-2, sv], [-2, sv + 7], [-17, sv + 7], [-17, 20]] };
+  const top = [], bot = [];
+  if (z === 'impact') {
+    for (let u = -b; u <= pe + 0.01; u += 2) { top.push([u, vBreak(G, u) - 1.5]); bot.push([u, vBreak(G, u) + 8]); }
+  } else if (z === 'shoulder') {
+    for (let u = pe * 0.35; u <= pe + 2.01; u += 2) { top.push([u, vBreak(G, u) - 11]); bot.push([u, vBreak(G, u) - 1.5]); }
+  }
+  return { poly: top.concat(bot.reverse()) };
+}
+
+function drawMarks(G, S, t, layer, scr) {
+  for (const m of S.marks) {
+    if (t < m.t0 || t > m.t1) continue;
+    const al = clamp(Math.min((t - m.t0) / 0.35, (m.t1 - t) / 0.35), 0, 1), col = MT[m.tone || 'info'];
+    ctx.globalAlpha = al;
+    if (layer === 'under' && m.type === 'zone') drawZone(G, m, col);
+    else if (layer === 'under' && m.type === 'path') drawPathMark(G, m, col, t);
+    else if (layer === 'over' && m.type === 'ring') {
+      const e = scr.find(([a]) => a.id === m.id);
+      if (e) {
+        const { x, y } = e[1], R = 2.3 * FIG;
+        ctx.strokeStyle = 'rgba(3,25,38,0.45)'; ctx.lineWidth = px(5.5); ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.stroke();
+        ctx.strokeStyle = col; ctx.lineWidth = px(3); ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.stroke();
+        if (m.label) placePill(x, y + R + px(12), m.label, col, inkOn(m.tone), 11);
+      }
+    } else if (layer === 'over' && m.type === 'x') {
+      const q = W(G, m.u, m.v), r = 1.4 * FIG;
+      for (const [c, lw] of [['rgba(3,25,38,0.5)', px(8)], [col, px(4.5)]]) {
+        ctx.strokeStyle = c; ctx.lineWidth = lw; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(q.x - r, q.y - r); ctx.lineTo(q.x + r, q.y + r); ctx.moveTo(q.x + r, q.y - r); ctx.lineTo(q.x - r, q.y + r); ctx.stroke();
+      }
+      if (m.label) placePill(q.x, q.y + r + px(13), m.label, col, inkOn('dont'), 11);
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawZone(G, m, col) {
+  const sh = zoneShape(G, m.zone);
+  ctx.fillStyle = hexA(col, 0.16); ctx.strokeStyle = col; ctx.lineWidth = px(2); ctx.setLineDash([px(6), px(4)]);
+  let lx, ly;
+  if (sh.c) {
+    const q = W(G, sh.c[0], sh.c[1]), ry = sh.ry || sh.r;
+    ctx.beginPath(); ctx.ellipse(q.x, q.y, sh.r, ry, 0, 0, 7); ctx.fill(); ctx.stroke();
+    lx = q.x; ly = q.y - ry - px(11);
+  } else {
+    polyPath(ctx, G, sh.poly); ctx.fill(); ctx.stroke();
+    const qs = sh.poly.map(p => W(G, p[0], p[1])), ys = qs.map(q => q.y);
+    const minY = Math.max(0, Math.min(...ys));
+    lx = qs.reduce((s, q) => s + q.x, 0) / qs.length; ly = minY + px(14);
+    if (m.zone === 'channel') ly = W(G, 0, G.shoreV - 14).y;
+  }
+  ctx.setLineDash([]);
+  if (m.label) placePill(lx, ly, m.label, col, inkOn(m.tone), 11.5);
+}
+
+function drawPathMark(G, m, col, t) {
+  const pts = m.pts.map(p => W(G, p[0], p[1]));
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(3,25,38,0.4)'; ctx.lineWidth = px(6);
+  ctx.beginPath(); pts.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.stroke();
+  ctx.strokeStyle = col; ctx.lineWidth = px(3); ctx.setLineDash([px(9), px(6)]); ctx.lineDashOffset = -t * px(28);
+  ctx.beginPath(); pts.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.stroke();
+  ctx.setLineDash([]); ctx.lineDashOffset = 0;
+  const a = pts[pts.length - 2], b = pts[pts.length - 1], an = Math.atan2(b.y - a.y, b.x - a.x), L = px(13);
+  ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(b.x, b.y);
+  ctx.lineTo(b.x - L * Math.cos(an - 0.45), b.y - L * Math.sin(an - 0.45)); ctx.lineTo(b.x - L * Math.cos(an + 0.45), b.y - L * Math.sin(an + 0.45)); ctx.closePath(); ctx.fill();
+  if (m.label) {
+    let best = 0, bl = -1;
+    for (let i = 0; i < pts.length - 1; i++) { const l = Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y); if (l > bl) { bl = l; best = i; } }
+    const p = pts[best], q = pts[best + 1];
+    placePill((p.x + q.x) / 2, (p.y + q.y) / 2, m.label, col, inkOn(m.tone), 11);
+  }
+}
+
+function drawTags(G, S, t, scr) {
+  let order = null;
+  if (S.queue) { for (const q of S.queue) if (q.t <= t) order = q.order; }
+  const placed = LBL, free = lblFree;
+  const items = scr.filter(([a]) => a.name || (order && order.includes(a.id))).sort((A, B) => (A[0].tone === 'you' ? -1 : 0) - (B[0].tone === 'you' ? -1 : 0) || B[1].y - A[1].y);
+  ctx.font = `700 ${px(11)}px ${MONO}`;
+  for (const [a, r] of items) {
+    const qi = order && r.s !== 'ride' && r.s !== 'wipe' ? order.indexOf(a.id) : -1;
+    const nameW = a.name ? ctx.measureText(a.name).width + px(10) : 0, badgeW = qi >= 0 ? px(20) : 0, gap = nameW && badgeW ? px(3) : 0;
+    const W0 = nameW + badgeW + gap, H0 = px(18), anchorY = r.y - 1.5 * FIG;
+    let x = clamp(r.x, W0 / 2 + 0.4, WW - W0 / 2 - 0.4), y = anchorY - px(12);
+    for (let k = 0; k < 7; k++) {
+      if (free(x - W0 / 2 - px(2), x + W0 / 2 + px(2), y - H0 / 2, y + H0 / 2)) break;
+      y -= H0 * 1.08;
+    }
+    placed.push([x - W0 / 2 - px(2), x + W0 / 2 + px(2), y - H0 / 2, y + H0 / 2]);
+    if (y < anchorY - px(22)) { ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = px(1.2); ctx.beginPath(); ctx.moveTo(r.x, anchorY); ctx.lineTo(x, y + H0 / 2); ctx.stroke(); }
+    const x0 = x - W0 / 2;
+    if (a.name) {
+      const you = a.tone === 'you', gh = a.tone === 'ghost';
+      pill(x0 + nameW / 2, y, a.name, you ? '#ff6b4a' : gh ? 'rgba(255,77,94,0.92)' : 'rgba(6,28,38,0.86)', you ? '#1b0b05' : '#ffffff', 11, MONO, '700');
+    }
+    if (qi >= 0) {
+      const bx = x0 + nameW + gap + badgeW / 2, R = px(9);
+      ctx.fillStyle = qi === 0 ? MT.prio : '#ffffff'; ctx.strokeStyle = 'rgba(6,28,38,0.7)'; ctx.lineWidth = px(1.5);
+      ctx.beginPath(); ctx.arc(bx, y, R, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#06212a'; ctx.font = `700 ${px(11)}px ${MONO}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(qi + 1), bx, y + px(0.5));
+    }
+    const say = a.says.find(s => t >= s.t0 && t <= s.t1);
+    if (say) {
+      ctx.font = `italic 700 ${px(12.5)}px ${SANS}`;
+      const bw = ctx.measureText(say.text).width + px(10), bh = px(20);
+      let by = y - H0 / 2 - px(14);
+      for (let k = 0; k < 5 && !free(x - bw / 2, x + bw / 2, by - bh / 2, by + bh / 2); k++) by -= bh * 1.1;
+      placed.push([x - bw / 2, x + bw / 2, by - bh / 2, by + bh / 2]);
+      const box = pill(x, by, say.text, '#ffffff', '#06212a', 12.5, SANS, 'italic 700');
+      ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.moveTo(box.x - px(5), box.y + box.h / 2 - px(0.5)); ctx.lineTo(box.x + px(5), box.y + box.h / 2 - px(0.5)); ctx.lineTo(box.x, box.y + box.h / 2 + px(6)); ctx.closePath(); ctx.fill();
+    }
+  }
+}
+
+/* ---------- UI ---------- */
+const $ = s => document.querySelector(s);
+const DEFAULTS = { wave: 'right', bottom: 'reef', channel: 'shoulder', outside: 'off', inside: 'off', crowd: 'busy', swell: 'medium', labels: 'on' };
+const NEED_LABEL = { wave: { aframe: 'A-frame peak' }, inside: { on: 'Inside section' }, outside: { on: 'Outside peak' }, channel: { any: 'A channel' } };
+const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const st = { set: { ...DEFAULTS }, scen: SCEN.find(s => s.id === 'join'), t: 0, playing: !reduceMotion, speed: 1, G: null, S: null, stepIdx: -2, staticKey: '', staticCanvas: null, locked: {}, dirty: true };
+try { const saved = JSON.parse(localStorage.getItem('lineup-conditions') || 'null'); if (saved) for (const k in DEFAULTS) if (saved[k]) st.set[k] = saved[k]; } catch (e) { }
+
+function applyNeeds() {
+  const n = st.scen.needs || {}, locked = {};
+  for (const k in n) {
+    if (n[k] === 'any') { if (st.set[k] === 'none') st.set[k] = 'shoulder'; locked[k] = 'any'; }
+    else { st.set[k] = n[k]; locked[k] = n[k]; }
+  }
+  if (st.set.wave === 'aframe' && st.set.bottom === 'point') st.set.bottom = 'reef';
+  if (st.set.bottom === 'point' && st.set.channel === 'peak') st.set.channel = 'shoulder';
+  st.locked = locked;
+}
+function syncForm() {
+  document.querySelectorAll('#conditions input[type=radio]').forEach(inp => {
+    const k = inp.name, v = inp.value, lk = st.locked[k];
+    inp.checked = st.set[k] === v;
+    let why = '';
+    if (lk === 'any' && v === 'none') why = 'This scenario needs a channel';
+    else if (lk && lk !== 'any' && v !== lk) why = 'Fixed by this scenario';
+    else if (k === 'bottom' && v === 'point' && st.set.wave === 'aframe') why = 'Points peel one way, so no A-frame here';
+    else if (k === 'wave' && v === 'aframe' && st.set.bottom === 'point') why = 'Points peel one way, so no A-frame here';
+    else if (k === 'channel' && v === 'peak' && st.set.bottom === 'point') why = 'The point itself is behind the peak';
+    inp.disabled = !!why; inp.parentElement.title = why;
+  });
+  document.querySelectorAll('#conditions fieldset').forEach(fs => fs.classList.toggle('locked', !!st.locked[fs.dataset.key]));
+  const keys = Object.keys(st.locked);
+  $('#condNote').textContent = keys.length
+    ? `This scenario needs ${keys.map(k => NEED_LABEL[k][st.locked[k]]).join(' and ')}, so that setting is fixed (outlined). Everything else is yours to change.`
+    : 'Every scenario replays on the break you configure here.';
+}
+
+function rebuild(keep) {
+  applyNeeds(); syncForm();
+  const G = makeGeo(st.set), S = makeBuilder(G);
+  st.scen.build(G, S);
+  S.steps.sort((a, b) => a.t - b.t);
+  S.duration = Math.ceil(S.duration);
+  st.G = G; st.S = S;
+  if (!keep) st.t = 0;
+  st.t = Math.min(st.t, S.duration);
+  const sc = $('#scrub'); sc.max = S.duration;
+  $('#scenGroup').textContent = st.scen.group;
+  $('#scenTitle').textContent = st.scen.title;
+  $('#scenSummary').textContent = st.scen.summary;
+  $('#rule').textContent = S.rule;
+  $('#needs').innerHTML = Object.keys(st.locked).map(k => `<span>Uses: ${NEED_LABEL[k][st.locked[k]]}</span>`).join('');
+  cv.setAttribute('aria-label', `Top-down animation of a ${G.waveName} ${G.bottom} break: ${st.scen.title}. Beach at the bottom, waves roll in from the top.`);
+  const list = $('#steps'); list.innerHTML = '';
+  S.steps.forEach((s, i) => {
+    const li = document.createElement('li'), b = document.createElement('button');
+    b.type = 'button';
+    b.innerHTML = `<span class="ts">${fmt(s.t)}</span><span class="dot" style="background:var(--${s.kind === 'dont' ? 'dont' : s.kind === 'do' ? 'do' : 'info'})"></span><span></span>`;
+    b.lastChild.textContent = s.title;
+    b.addEventListener('click', () => { st.t = s.t + 0.01; st.dirty = true; updateStep(true); });
+    li.appendChild(b); list.appendChild(li);
+  });
+  $('#ticks').innerHTML = S.steps.map(s => `<b style="left:${(s.t / S.duration * 100).toFixed(2)}%;background:var(--${s.kind === 'dont' ? 'dont' : s.kind === 'do' ? 'do' : 'info'})"></b>`).join('');
+  document.querySelectorAll('#scenList button').forEach(b => b.setAttribute('aria-current', String(b.dataset.id === st.scen.id)));
+  $('#scenSelect').value = st.scen.id;
+  st.stepIdx = -2; st.dirty = true; updateStep(true); updateTransport();
+}
+
+const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+const KIND = { do: ['Do this', 'k-do', 'do'], dont: ["Don't", 'k-dont', 'dont'], info: ['Watch', 'k-info', 'info'] };
+function updateStep(force) {
+  const S = st.S; if (!S) return;
+  let idx = -1;
+  S.steps.forEach((s, i) => { if (s.t <= st.t + 0.005) idx = i; });
+  if (idx === st.stepIdx && !force) return;
+  st.stepIdx = idx;
+  const s = S.steps[Math.max(0, idx)], k = KIND[s.kind] || KIND.info;
+  const now = $('#now'); now.className = 'now ' + k[2];
+  const kd = $('#nowKind'); kd.textContent = k[0]; kd.className = 'kind ' + k[1];
+  $('#nowTitle').textContent = s.title; $('#nowText').textContent = s.text;
+  const btns = document.querySelectorAll('#steps button');
+  btns.forEach((b, i) => b.classList.toggle('cur', i === idx));
+  const cur = btns[idx], list = $('#steps');
+  if (cur) { const top = cur.offsetTop - list.offsetTop; if (top < list.scrollTop || top > list.scrollTop + list.clientHeight - cur.offsetHeight) list.scrollTop = top - 8; }
+}
+function setPlaying(p) {
+  st.playing = p;
+  $('#playLab').textContent = p ? 'Pause' : (st.t >= st.S.duration - 0.01 ? 'Replay' : 'Play');
+  $('#playIcon').innerHTML = p ? '<path d="M3 2h4v12H3zM9 2h4v12H9z"/>' : '<path d="M4 2l10 6-10 6z"/>';
+}
+function updateTransport() {
+  $('#scrub').value = st.t;
+  $('#time').textContent = `${fmt(st.t)} / ${fmt(st.S.duration)}`;
+}
+
+function selectScen(id, fromHash) {
+  const s = SCEN.find(x => x.id === id); if (!s) return;
+  st.scen = s;
+  if (!fromHash && location.hash !== '#' + id) { try { history.replaceState(null, '', '#' + id); } catch (e) { location.hash = id; } }
+  rebuild(false); setPlaying(!reduceMotion);
+}
+
+function buildMenu() {
+  const list = $('#scenList'), sel = $('#scenSelect');
+  for (const g of GROUPS) {
+    const grp = document.createElement('div'); grp.className = 'grp';
+    grp.innerHTML = `<span class="lab">${g}</span>`;
+    const og = document.createElement('optgroup'); og.label = g;
+    for (const s of SCEN.filter(x => x.group === g)) {
+      const b = document.createElement('button'); b.type = 'button'; b.dataset.id = s.id;
+      b.innerHTML = '<span></span>' + (s.needs ? `<small>${NEED_LABEL[Object.keys(s.needs)[0]][Object.values(s.needs)[0]].replace('A channel', 'Channel')}</small>` : '');
+      b.firstChild.textContent = s.title;
+      b.addEventListener('click', () => selectScen(s.id));
+      grp.appendChild(b);
+      const o = document.createElement('option'); o.value = s.id; o.textContent = s.title; og.appendChild(o);
+    }
+    list.appendChild(grp); sel.appendChild(og);
+  }
+  sel.addEventListener('change', () => selectScen(sel.value));
+}
+
+function draw() { drawScene(st.t); st.dirty = false; }
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (st.playing) {
+    st.t += dt * st.speed;
+    if (st.t >= st.S.duration) { st.t = st.S.duration; setPlaying(false); }
+    st.dirty = true;
+  }
+  if (st.dirty) { draw(); updateTransport(); updateStep(); }
+  requestAnimationFrame(frame);
+}
+
+function init() {
+  buildMenu();
+  $('#conditions').addEventListener('change', e => {
+    const inp = e.target; if (!inp.name) return;
+    st.set[inp.name] = inp.value;
+    try { localStorage.setItem('lineup-conditions', JSON.stringify(st.set)); } catch (err) { }
+    rebuild(true);
+  });
+  $('#conditions').addEventListener('submit', e => e.preventDefault());
+  $('#play').addEventListener('click', () => {
+    if (!st.playing && st.t >= st.S.duration - 0.01) st.t = 0;
+    setPlaying(!st.playing); st.dirty = true;
+  });
+  $('#restart').addEventListener('click', () => { st.t = 0; setPlaying(true); st.dirty = true; updateStep(true); });
+  $('#scrub').addEventListener('input', e => { st.t = +e.target.value; st.dirty = true; if (st.t < st.S.duration - 0.01 && !st.playing) setPlaying(false); });
+  document.querySelectorAll('.speed button').forEach(b => b.addEventListener('click', () => {
+    st.speed = +b.dataset.speed;
+    document.querySelectorAll('.speed button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  }));
+  document.addEventListener('keydown', e => {
+    if (e.code !== 'Space' || e.target.closest('input,button,select,textarea')) return;
+    e.preventDefault(); $('#play').click();
+  });
+  window.addEventListener('hashchange', () => selectScen(location.hash.slice(1), true));
+  const ro = new ResizeObserver(() => { resizeCanvas(); st.staticKey = ''; st.dirty = true; });
+  ro.observe(cv.parentElement);
+  resizeCanvas();
+  const h = location.hash.slice(1);
+  if (SCEN.some(s => s.id === h)) st.scen = SCEN.find(s => s.id === h);
+  rebuild(false); setPlaying(st.playing);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { st.dirty = true; });
+  requestAnimationFrame(frame);
+}
+init();
+</script>
+</body>
+</html>
